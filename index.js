@@ -215,12 +215,72 @@ function question(text) {
 // MESSAGE TEXT
 // =====================================
 
+function getInteractiveReplyId(
+  msg
+) {
+  const m =
+    msg?.message ||
+    {}
+
+  const paramsJson =
+    m
+      .interactiveResponseMessage
+      ?.nativeFlowResponseMessage
+      ?.paramsJson
+
+  if (paramsJson) {
+    try {
+      const params =
+        JSON.parse(
+          paramsJson
+        )
+
+      if (
+        typeof params?.id ===
+          'string' &&
+        params.id.trim()
+      ) {
+        return params.id
+      }
+    } catch {}
+  }
+
+  return (
+    m.buttonsResponseMessage
+      ?.selectedButtonId ||
+    m.templateButtonReplyMessage
+      ?.selectedId ||
+    m.listResponseMessage
+      ?.singleSelectReply
+      ?.selectedRowId ||
+    ''
+  )
+}
+
+function isInteractiveAction(
+  msg
+) {
+  const m =
+    msg?.message ||
+    {}
+
+  return Boolean(
+    m.interactiveResponseMessage ||
+    m.buttonsResponseMessage ||
+    m.templateButtonReplyMessage ||
+    m.listResponseMessage
+  )
+}
+
 function getText(msg) {
   const m = msg.message
 
   if (!m) return ''
 
   return (
+    getInteractiveReplyId(
+      msg
+    ) ||
     m.conversation ||
     m.extendedTextMessage?.text ||
     m.imageMessage?.caption ||
@@ -2725,13 +2785,27 @@ async function startBotInner() {
           // OWNER IMMUNE
           // =================================
 
+          const uiAction =
+            isInteractiveAction(
+              msg
+            ) &&
+            text
+              .toLowerCase()
+              .startsWith(
+                `${config.prefix}apkmody __`
+              )
+
           const spam =
-            await checkAntiSpam({
-              sock,
-              msg,
-              jid,
-              isOwner
-            })
+            uiAction
+              ? {
+                  blocked: false
+                }
+              : await checkAntiSpam({
+                  sock,
+                  msg,
+                  jid,
+                  isOwner
+                })
 
           if (spam.blocked) {
             if (spam.notify) {
