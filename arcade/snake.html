@@ -1,0 +1,389 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+html,body{margin:0;width:100%;height:510px;overflow:hidden;background:transparent;font-family:Arial,sans-serif;color:#fff}
+.app{height:510px;padding:10px}
+.card{height:100%;overflow:hidden;border-radius:22px;border:1px solid #174c5a;background:linear-gradient(160deg,#0a0f20,#03050d);box-shadow:0 15px 40px #0008}
+header{height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid #ffffff12;background:#0003}
+.sub{font-size:8px;font-weight:800;letter-spacing:2px;color:#38eaff}
+.title{font-size:20px;font-weight:900;margin-top:3px}.title span{color:#38eaff}
+.right{display:flex;align-items:center;gap:10px}
+.stats{display:flex;gap:11px}.stat{text-align:right}.label{font-size:7px;color:#68738d;font-weight:bold}.value{font-size:18px;color:#38eaff;font-weight:900}
+#mute{width:34px;height:34px;border-radius:10px;border:1px solid #38eaff33;background:#ffffff0d;color:#fff}
+.game{padding:10px 12px 5px}
+canvas{display:block;width:min(100%,360px);height:auto;aspect-ratio:360/320;margin:0 auto;background:#030611;border:1px solid #38eaff22;border-radius:15px;touch-action:none}
+.controls{height:92px;padding:3px 13px 9px;display:flex;align-items:center;gap:13px}
+.startbox{flex:1}
+#start{width:100%;height:47px;border:0;border-radius:13px;background:#38eaff;color:#061016;font-weight:900;letter-spacing:1.4px}
+#start:active,.dir:active,#mute:active{transform:scale(.92)}
+.hint{text-align:center;margin-top:5px;color:#56617c;font-size:7px;letter-spacing:1px}
+.pad{display:grid;grid-template-columns:repeat(3,42px);grid-template-rows:repeat(2,39px);gap:3px}
+.dir{border:1px solid #ffffff17;border-radius:10px;background:#ffffff0b;color:#fff;font-size:19px}
+.u{grid-column:2}.l{grid-column:1;grid-row:2}.d{grid-column:2;grid-row:2}.r{grid-column:3;grid-row:2}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="card">
+
+<header>
+  <div>
+    <div class="sub">NEXA ARCADE // 001</div>
+    <div class="title">SNAKE<span>.EXE</span></div>
+  </div>
+
+  <div class="right">
+    <div class="stats">
+      <div class="stat">
+        <div class="label">SCORE</div>
+        <div class="value" id="score">000</div>
+      </div>
+      <div class="stat">
+        <div class="label">SPEED</div>
+        <div class="value" id="speed">01</div>
+      </div>
+    </div>
+    <button id="mute">🔊</button>
+  </div>
+</header>
+
+<div class="game">
+  <canvas id="c" width="360" height="320"></canvas>
+</div>
+
+<div class="controls">
+  <div class="startbox">
+    <button id="start">ENGAGE</button>
+    <div class="hint">SWIPE OR USE D-PAD</div>
+  </div>
+
+  <div class="pad">
+    <button class="dir u" data-d="u">↑</button>
+    <button class="dir l" data-d="l">←</button>
+    <button class="dir d" data-d="d">↓</button>
+    <button class="dir r" data-d="r">→</button>
+  </div>
+</div>
+
+</div>
+</div>
+
+<script>
+(()=>{
+const c=document.getElementById('c'),x=c.getContext('2d')
+const scoreE=document.getElementById('score'),speedE=document.getElementById('speed')
+const start=document.getElementById('start'),mute=document.getElementById('mute')
+
+const GX=18,GY=16,CW=c.width/GX,CH=c.height/GY
+
+let snake=[],food={x:3,y:3},dir={x:1,y:0},next={x:1,y:0}
+let score=0,speed=1,running=false,over=false,timer=null
+let muted=false,audio=null,tx=0,ty=0,particles=[]
+
+function audioInit(){
+  if(!audio){
+    const A=window.AudioContext||window.webkitAudioContext
+    if(A) audio=new A()
+  }
+  if(audio&&audio.state==='suspended') audio.resume().catch(()=>{})
+}
+
+function tone(f,to,d=.08,type='sine',vol=.08,delay=0){
+  if(muted||!audio)return
+  try{
+    const t=audio.currentTime+delay,o=audio.createOscillator(),g=audio.createGain()
+    o.type=type
+    o.frequency.setValueAtTime(f,t)
+    if(to)o.frequency.exponentialRampToValueAtTime(to,t+d)
+    g.gain.setValueAtTime(.0001,t)
+    g.gain.exponentialRampToValueAtTime(vol,t+.008)
+    g.gain.exponentialRampToValueAtTime(.0001,t+d)
+    o.connect(g);g.connect(audio.destination)
+    o.start(t);o.stop(t+d+.02)
+  }catch{}
+}
+
+function sndStart(){
+  tone(260,480,.08,'triangle',.09)
+  tone(520,900,.12,'triangle',.08,.07)
+}
+
+function sndTurn(){
+  tone(190,260,.035,'square',.02)
+}
+
+function sndEat(){
+  tone(480,760,.08,'sine',.11)
+  tone(760,1200,.12,'triangle',.08,.05)
+}
+
+function sndLevel(){
+  tone(440,660,.08,'triangle',.07)
+  tone(660,880,.09,'triangle',.07,.07)
+  tone(880,1250,.11,'triangle',.07,.14)
+}
+
+function sndOver(){
+  tone(250,70,.4,'sawtooth',.09)
+  tone(150,50,.44,'triangle',.07,.06)
+}
+
+function rnd(n){return Math.floor(Math.random()*n)}
+
+function foodNew(){
+  do food={x:rnd(GX),y:rnd(GY)}
+  while(snake.some(p=>p.x===food.x&&p.y===food.y))
+}
+
+function hud(){
+  scoreE.textContent=String(score).padStart(3,'0')
+  speedE.textContent=String(speed).padStart(2,'0')
+}
+
+function stop(){
+  if(timer)clearTimeout(timer)
+  timer=null
+}
+
+function reset(){
+  stop()
+  snake=[{x:9,y:8},{x:8,y:8},{x:7,y:8}]
+  dir={x:1,y:0};next={x:1,y:0}
+  score=0;speed=1;over=false;particles=[]
+  foodNew();hud();draw()
+}
+
+function burst(px,py){
+  for(let i=0;i<14;i++){
+    const a=Math.random()*Math.PI*2,s=1+Math.random()*3
+    particles.push({
+      x:px*CW+CW/2,y:py*CH+CH/2,
+      vx:Math.cos(a)*s,vy:Math.sin(a)*s,
+      life:18+Math.random()*10
+    })
+  }
+}
+
+function change(d){
+  if(!running)return
+
+  let n=null
+  if(d==='u'&&dir.y!==1)n={x:0,y:-1}
+  if(d==='d'&&dir.y!==-1)n={x:0,y:1}
+  if(d==='l'&&dir.x!==1)n={x:-1,y:0}
+  if(d==='r'&&dir.x!==-1)n={x:1,y:0}
+
+  if(!n)return
+  if(n.x===next.x&&n.y===next.y)return
+
+  next=n
+  sndTurn()
+}
+
+function gameOver(){
+  running=false;over=true;stop();sndOver()
+  start.textContent='RETRY'
+  try{navigator.vibrate?.([40,30,70])}catch{}
+  draw()
+}
+
+function tick(){
+  if(!running)return
+
+  dir={...next}
+
+  const h={
+    x:snake[0].x+dir.x,
+    y:snake[0].y+dir.y
+  }
+
+  if(h.x<0||h.y<0||h.x>=GX||h.y>=GY){
+    gameOver();return
+  }
+
+  const eat=h.x===food.x&&h.y===food.y
+  const body=eat?snake:snake.slice(0,-1)
+
+  if(body.some(p=>p.x===h.x&&p.y===h.y)){
+    gameOver();return
+  }
+
+  snake.unshift(h)
+
+  if(eat){
+    const old=speed
+    burst(food.x,food.y)
+    score+=10
+    speed=Math.min(9,1+Math.floor(score/50))
+    sndEat()
+    if(speed>old)sndLevel()
+    try{navigator.vibrate?.(15)}catch{}
+    foodNew()
+  }else snake.pop()
+
+  hud();draw()
+
+  timer=setTimeout(
+    tick,
+    Math.max(70,155-(speed-1)*10)
+  )
+}
+
+function startGame(){
+  audioInit()
+  reset()
+  running=true
+  start.textContent='RESTART'
+  sndStart()
+  timer=setTimeout(tick,155)
+}
+
+function rect(px,py,w,h,r){
+  x.beginPath()
+  if(x.roundRect)x.roundRect(px,py,w,h,r)
+  else x.rect(px,py,w,h)
+  x.fill()
+}
+
+function draw(){
+  const g=x.createLinearGradient(0,0,0,c.height)
+  g.addColorStop(0,'#050918')
+  g.addColorStop(1,'#02030a')
+  x.fillStyle=g;x.fillRect(0,0,c.width,c.height)
+
+  x.strokeStyle='rgba(56,234,255,.045)'
+  x.lineWidth=1
+
+  for(let i=1;i<GX;i++){
+    x.beginPath();x.moveTo(i*CW,0);x.lineTo(i*CW,c.height);x.stroke()
+  }
+
+  for(let i=1;i<GY;i++){
+    x.beginPath();x.moveTo(0,i*CH);x.lineTo(c.width,i*CH);x.stroke()
+  }
+
+  const fx=food.x*CW+CW/2,fy=food.y*CH+CH/2
+
+  x.save()
+  x.shadowColor='#ff477d';x.shadowBlur=14
+  x.fillStyle='#ff477d'
+  x.beginPath();x.arc(fx,fy,6,0,Math.PI*2);x.fill()
+  x.restore()
+
+  particles.forEach(p=>{
+    p.x+=p.vx;p.y+=p.vy;p.life--
+    x.save()
+    x.globalAlpha=Math.max(0,p.life/28)
+    x.fillStyle='#ff6a98'
+    x.beginPath();x.arc(p.x,p.y,2.3,0,Math.PI*2);x.fill()
+    x.restore()
+  })
+  particles=particles.filter(p=>p.life>0)
+
+  snake.forEach((p,i)=>{
+    const px=p.x*CW,py=p.y*CH
+
+    x.save()
+    x.shadowColor=i===0?'#65f5ff':'#655cff'
+    x.shadowBlur=i===0?13:5
+    x.fillStyle=i===0?'#72f5ff':'#655cff'
+
+    rect(px+2,py+2,CW-4,CH-4,5)
+    x.restore()
+
+    if(i===0){
+      x.fillStyle='#031016'
+      const cx=px+CW/2,cy=py+CH/2
+      let a,b
+
+      if(dir.x){
+        const q=dir.x*4
+        a={x:cx+q,y:cy-3};b={x:cx+q,y:cy+3}
+      }else{
+        const q=dir.y*4
+        a={x:cx-3,y:cy+q};b={x:cx+3,y:cy+q}
+      }
+
+      x.beginPath()
+      x.arc(a.x,a.y,1.5,0,Math.PI*2)
+      x.arc(b.x,b.y,1.5,0,Math.PI*2)
+      x.fill()
+    }
+  })
+
+  if(!running){
+    x.fillStyle='rgba(2,4,13,.74)'
+    x.fillRect(0,0,c.width,c.height)
+    x.textAlign='center'
+
+    if(over){
+      x.fillStyle='#ff477d'
+      x.font='900 29px Arial'
+      x.fillText('GAME OVER',c.width/2,126)
+
+      x.fillStyle='#fff'
+      x.font='800 20px Arial'
+      x.fillText('SCORE '+score,c.width/2,163)
+
+      x.fillStyle='#73809b'
+      x.font='12px Arial'
+      x.fillText('Tap RETRY to reconnect',c.width/2,194)
+    }else{
+      x.fillStyle='#fff'
+      x.font='900 29px Arial'
+      x.fillText('NEXA SNAKE',c.width/2,125)
+
+      x.fillStyle='#38eaff'
+      x.font='800 11px Arial'
+      x.fillText('GRID ONLINE',c.width/2,153)
+
+      x.fillStyle='#6c7791'
+      x.font='12px Arial'
+      x.fillText('Eat • Grow • Survive',c.width/2,184)
+      x.fillText('Press ENGAGE',c.width/2,205)
+    }
+  }
+}
+
+start.addEventListener('click',startGame)
+
+mute.addEventListener('click',()=>{
+  audioInit()
+  muted=!muted
+  mute.textContent=muted?'🔇':'🔊'
+  if(!muted)tone(600,850,.08,'triangle',.06)
+})
+
+document.querySelectorAll('[data-d]').forEach(b=>{
+  b.addEventListener('pointerdown',e=>{
+    e.preventDefault()
+    audioInit()
+    change(b.dataset.d)
+  })
+})
+
+c.addEventListener('pointerdown',e=>{
+  tx=e.clientX;ty=e.clientY
+  audioInit()
+})
+
+c.addEventListener('pointerup',e=>{
+  const dx=e.clientX-tx,dy=e.clientY-ty
+  if(Math.abs(dx)<15&&Math.abs(dy)<15)return
+  if(Math.abs(dx)>Math.abs(dy))change(dx>0?'r':'l')
+  else change(dy>0?'d':'u')
+})
+
+window.addEventListener('pagehide',()=>{
+  running=false;stop()
+})
+
+reset()
+})()
+</script>
+</body>
+</html>

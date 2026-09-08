@@ -1,0 +1,10 @@
+python - <<'PY'
+import base64, gzip
+
+data = """H4sICKRjm2oAA2dyb3VwSW50cm8uanMApZNNT8MwDIbv/RXm1FaaOokTmoQQCCHgAEjjhhDKWpeFtcnkJPvQ1P9O0qZd2wEXTrUd1+9jx+HlWpKGXEFOsoQwV2HAm9ia6aWPOjMMglQKpeH25uPl+vUeLgOocxJCJYsNRtYHCJNpxjRbMIXTT5Jm/SA0yeRLSRHahDgIciNSzaUAFMoQ3vrsKIaDTWg0Mk51fa9gXcFKrwAtQe3ZggA8h+bsLFcJ7rjSar4XaWT/i51oXRlsl0m5srH6zNey7sSbB/8FIEwNKb7BGWgy6OOVF3TWH6KebiS8Ja7xjhfYF/epLcDj/PkpUZq4+OT5PupwDtWks4UpiqN37q24h1b1RkzIstGAx1N3rWjae1JCbUg0JGtGqpu5bcEVG3dw0oPdAKPzi/AUDFKm0+VQ51CdICu2OdK5Vfod++exDoB+Hqkr2wL3B3re0caOCXfN42jRlkzV25yZFDNXq17wR54Fg91d+NUdDt8B+65vpCyQiYYmW7y1Zd6vEt7V/w2iZLT6H0VfES79hRyFm52fjKLXetYuLdOYCLmNupcwvLJFv9X6+VTBN3AZTolnBAAA"""
+
+with open('lib/groupIntro.js', 'wb') as f:
+    f.write(gzip.decompress(base64.b64decode(data)))
+
+print('✅ groupIntro.js dibuat')
+

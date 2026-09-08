@@ -1,0 +1,63 @@
+<div style="
+  background:#080b16;
+  color:white;
+  padding:20px;
+  border-radius:18px;
+  font-family:Arial,sans-serif;
+  text-align:center;
+">
+  <div style="
+    color:#00eaff;
+    font-size:11px;
+    letter-spacing:3px;
+    font-weight:700;
+  ">
+    NEXA ARCADE
+  </div>
+
+  <h2 style="margin:10px 0">
+    🐍 SNAKE TEST
+  </h2>
+
+  <p id="status">
+    HTML Mini App berhasil dimuat.
+  </p>
+
+  <button
+    id="btn"
+    style="
+      border:0;
+      padding:14px 25px;
+      border-radius:12px;
+      background:#00eaff;
+      color:#061015;
+      font-weight:800;
+    "
+  >
+    TAP ME
+  </button>
+</div>
+
+<script>
+(() => {
+  let count = 0
+
+  const btn =
+    document.getElementById('btn')
+
+  const status =
+    document.getElementById('status')
+
+  btn.addEventListener(
+    'click',
+    () => {
+      count++
+
+      status.textContent =
+        `Tap berhasil: ${count}`
+    }
+  )
+})()
+</script>
+
+<!-- NEXA-FULL-SNAKE-CHECK-094X -->

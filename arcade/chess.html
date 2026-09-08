@@ -1,0 +1,1793 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta
+  name="viewport"
+  content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"
+>
+
+<style>
+*{
+  box-sizing:border-box;
+  -webkit-tap-highlight-color:transparent;
+  user-select:none;
+}
+
+html,body{
+  margin:0;
+  width:100%;
+  height:610px;
+  overflow:hidden;
+  background:transparent;
+  color:#fff;
+  font-family:Arial,sans-serif;
+}
+
+.app{
+  height:610px;
+  padding:10px;
+}
+
+.card{
+  height:100%;
+  overflow:hidden;
+  border-radius:22px;
+  border:1px solid #31505d;
+  background:linear-gradient(160deg,#0b1020,#03050d);
+  box-shadow:0 14px 40px #0009;
+}
+
+header{
+  height:68px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 14px;
+  border-bottom:1px solid #ffffff12;
+}
+
+.sub{
+  font-size:8px;
+  font-weight:800;
+  letter-spacing:2px;
+  color:#48e8ff;
+}
+
+.title{
+  margin-top:3px;
+  font-size:19px;
+  font-weight:900;
+}
+
+.title span{
+  color:#48e8ff;
+}
+
+.headright{
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+
+.state{
+  text-align:right;
+}
+
+.state small{
+  display:block;
+  color:#6c7690;
+  font-size:7px;
+  font-weight:bold;
+}
+
+.state strong{
+  color:#48e8ff;
+  font-size:12px;
+}
+
+.icon{
+  width:34px;
+  height:34px;
+  border-radius:10px;
+  border:1px solid #48e8ff33;
+  background:#ffffff0c;
+  color:white;
+}
+
+.game{
+  padding:12px;
+}
+
+/* PLAYER-BOTTOM POV V2 */
+
+@keyframes boardEnter{
+  from{
+    opacity:0;
+    transform:translateY(8px) scale(.975);
+  }
+  to{
+    opacity:1;
+    transform:translateY(0) scale(1);
+  }
+}
+
+@keyframes infoEnter{
+  from{
+    opacity:0;
+    transform:translateY(5px);
+  }
+  to{
+    opacity:1;
+    transform:translateY(0);
+  }
+}
+
+.boardwrap{
+  animation:
+    boardEnter .32s ease-out both;
+
+  position:relative;
+  width:min(100%,410px);
+  aspect-ratio:1/1;
+  margin:auto;
+  border:1px solid #48e8ff2a;
+  border-radius:14px;
+  overflow:hidden;
+  box-shadow:0 0 25px #000a;
+}
+
+canvas{
+  display:block;
+  width:100%;
+  height:100%;
+  touch-action:none;
+}
+
+.info{
+  animation:
+    infoEnter .35s .08s ease-out both;
+
+  height:59px;
+  margin:2px 13px 0;
+  padding:8px 11px;
+  border-radius:12px;
+  background:#ffffff08;
+  border:1px solid #ffffff0d;
+}
+
+#status{
+  color:#dce8ef;
+  font-size:12px;
+  font-weight:700;
+}
+
+#detail{
+  margin-top:4px;
+  color:#64708b;
+  font-size:9px;
+}
+
+.bottom{
+  height:65px;
+  padding:5px 13px 10px;
+  display:flex;
+  gap:8px;
+}
+
+#newGame{
+  flex:1;
+  border:0;
+  border-radius:13px;
+  background:#48e8ff;
+  color:#061017;
+  font-weight:900;
+  letter-spacing:1px;
+}
+
+.secondary{
+  width:48px;
+  border-radius:13px;
+  border:1px solid #ffffff16;
+  background:#ffffff0c;
+  color:white;
+  font-size:17px;
+}
+
+button:active{
+  transform:scale(.94);
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+<div class="card">
+
+<header>
+  <div>
+    <div class="sub">NEXA ARCADE // 002</div>
+    <div class="title">NEXA <span>CHESS</span></div>
+  </div>
+
+  <div class="headright">
+    <div class="state">
+      <small>YOU</small>
+      <strong id="youColor">WHITE ♙</strong>
+    </div>
+
+    <button class="icon" id="mute">
+      🔊
+    </button>
+  </div>
+</header>
+
+<div class="game">
+  <div class="boardwrap">
+    <canvas
+      id="board"
+      width="400"
+      height="400"
+    ></canvas>
+  </div>
+</div>
+
+<div class="info">
+  <div id="status">
+    Your move.
+  </div>
+
+  <div id="detail">
+    NEXA AI • MEDIUM+ • tap a piece to move
+  </div>
+</div>
+
+<div class="bottom">
+  <button id="newGame">
+    NEW GAME
+  </button>
+
+  <button
+    class="secondary"
+    id="flip"
+    title="Player selalu di bawah"
+  >
+    🔒
+  </button>
+</div>
+
+</div>
+</div>
+
+<script>
+(()=>{
+const canvas=document.getElementById('board')
+const ctx=canvas.getContext('2d')
+
+const statusEl=document.getElementById('status')
+const detailEl=document.getElementById('detail')
+const newBtn=document.getElementById('newGame')
+const muteBtn=document.getElementById('mute')
+const flipBtn=document.getElementById('flip')
+const youColorEl=document.getElementById('youColor')
+
+const S=50
+
+const ICON={
+  wK:'♔',wQ:'♕',wR:'♖',
+  wB:'♗',wN:'♘',wP:'♙',
+  bK:'♚',bQ:'♛',bR:'♜',
+  bB:'♝',bN:'♞',bP:'♟'
+}
+
+const VAL={
+  P:100,
+  N:320,
+  B:335,
+  R:500,
+  Q:900,
+  K:20000
+}
+
+let selected=null
+let options=[]
+let thinking=false
+
+// PLAYER-BOTTOM POV V2
+//
+// Engine saat ini:
+// player = putih
+// NEXA   = hitam
+//
+// POV tidak boleh dibalik manual.
+// Kalau nanti playerColor dibuat hitam,
+// orientation cukup mengikuti:
+// playerColor === 'b'
+const playerColor='w'
+const aiColor='b'
+
+let flipped=
+  playerColor==='b'
+
+let lastMove=null
+let selectPulse=0
+
+let audio=null
+let muted=false
+
+const TIMEOUT={}
+
+function initAudio(){
+  if(!audio){
+    const A=
+      window.AudioContext||
+      window.webkitAudioContext
+
+    if(A)audio=new A()
+  }
+
+  if(
+    audio&&
+    audio.state==='suspended'
+  ){
+    audio.resume().catch(()=>{})
+  }
+}
+
+function tone(f,to,d=.07,type='sine',vol=.07,delay=0){
+  if(muted||!audio)return
+
+  try{
+    const t=audio.currentTime+delay
+    const o=audio.createOscillator()
+    const g=audio.createGain()
+
+    o.type=type
+    o.frequency.setValueAtTime(f,t)
+
+    if(to){
+      o.frequency.exponentialRampToValueAtTime(
+        to,
+        t+d
+      )
+    }
+
+    g.gain.setValueAtTime(.0001,t)
+    g.gain.exponentialRampToValueAtTime(
+      vol,
+      t+.007
+    )
+    g.gain.exponentialRampToValueAtTime(
+      .0001,
+      t+d
+    )
+
+    o.connect(g)
+    g.connect(audio.destination)
+
+    o.start(t)
+    o.stop(t+d+.02)
+  }catch{}
+}
+
+function soundMove(){
+  tone(220,280,.045,'triangle',.045)
+}
+
+function soundCapture(){
+  tone(180,90,.08,'square',.055)
+  tone(350,230,.07,'triangle',.04,.025)
+}
+
+function soundCheck(){
+  tone(520,760,.10,'triangle',.07)
+  tone(760,900,.10,'triangle',.05,.07)
+}
+
+function soundWin(){
+  tone(440,660,.10,'triangle',.07)
+  tone(660,880,.11,'triangle',.07,.09)
+  tone(880,1320,.14,'triangle',.07,.18)
+}
+
+function soundLose(){
+  tone(260,150,.18,'sawtooth',.07)
+  tone(150,65,.28,'triangle',.06,.13)
+}
+
+function initialBoard(){
+  return[
+    ['bR','bN','bB','bQ','bK','bB','bN','bR'],
+    ['bP','bP','bP','bP','bP','bP','bP','bP'],
+    [null,null,null,null,null,null,null,null],
+    [null,null,null,null,null,null,null,null],
+    [null,null,null,null,null,null,null,null],
+    [null,null,null,null,null,null,null,null],
+    ['wP','wP','wP','wP','wP','wP','wP','wP'],
+    ['wR','wN','wB','wQ','wK','wB','wN','wR']
+  ]
+}
+
+function newState(){
+  return{
+    b:initialBoard(),
+    turn:'w',
+
+    castle:{
+      K:true,
+      Q:true,
+      k:true,
+      q:true
+    },
+
+    ep:null
+  }
+}
+
+let game=newState()
+
+function clone(s){
+  return{
+    b:s.b.map(r=>r.slice()),
+    turn:s.turn,
+
+    castle:{
+      ...s.castle
+    },
+
+    ep:s.ep
+      ? {...s.ep}
+      : null
+  }
+}
+
+function enemy(c){
+  return c==='w'?'b':'w'
+}
+
+function inside(y,x){
+  return(
+    y>=0&&
+    y<8&&
+    x>=0&&
+    x<8
+  )
+}
+
+function attacked(s,y,x,by){
+  const b=s.b
+
+  const pawnDir=
+    by==='w'
+      ? -1
+      : 1
+
+  const pawnY=
+    y-pawnDir
+
+  for(const dx of[-1,1]){
+    const xx=x+dx
+
+    if(
+      inside(pawnY,xx)&&
+      b[pawnY][xx]===
+        by+'P'
+    ){
+      return true
+    }
+  }
+
+  const knight=[
+    [-2,-1],[-2,1],
+    [-1,-2],[-1,2],
+    [1,-2],[1,2],
+    [2,-1],[2,1]
+  ]
+
+  for(const[dY,dX]of knight){
+    const yy=y+dY
+    const xx=x+dX
+
+    if(
+      inside(yy,xx)&&
+      b[yy][xx]===
+        by+'N'
+    ){
+      return true
+    }
+  }
+
+  const bishopDirs=[
+    [-1,-1],[-1,1],
+    [1,-1],[1,1]
+  ]
+
+  for(const[dY,dX]of bishopDirs){
+    let yy=y+dY
+    let xx=x+dX
+
+    while(inside(yy,xx)){
+      const p=b[yy][xx]
+
+      if(p){
+        if(
+          p[0]===by&&
+          (
+            p[1]==='B'||
+            p[1]==='Q'
+          )
+        ){
+          return true
+        }
+
+        break
+      }
+
+      yy+=dY
+      xx+=dX
+    }
+  }
+
+  const rookDirs=[
+    [-1,0],[1,0],
+    [0,-1],[0,1]
+  ]
+
+  for(const[dY,dX]of rookDirs){
+    let yy=y+dY
+    let xx=x+dX
+
+    while(inside(yy,xx)){
+      const p=b[yy][xx]
+
+      if(p){
+        if(
+          p[0]===by&&
+          (
+            p[1]==='R'||
+            p[1]==='Q'
+          )
+        ){
+          return true
+        }
+
+        break
+      }
+
+      yy+=dY
+      xx+=dX
+    }
+  }
+
+  for(let dy=-1;dy<=1;dy++){
+    for(let dx=-1;dx<=1;dx++){
+      if(!dy&&!dx)continue
+
+      const yy=y+dy
+      const xx=x+dx
+
+      if(
+        inside(yy,xx)&&
+        b[yy][xx]===
+          by+'K'
+      ){
+        return true
+      }
+    }
+  }
+
+  return false
+}
+
+function kingPos(s,color){
+  for(let y=0;y<8;y++){
+    for(let x=0;x<8;x++){
+      if(
+        s.b[y][x]===
+        color+'K'
+      ){
+        return{
+          y,
+          x
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+function inCheck(s,color){
+  const k=
+    kingPos(s,color)
+
+  if(!k)return true
+
+  return attacked(
+    s,
+    k.y,
+    k.x,
+    enemy(color)
+  )
+}
+
+function pseudoMoves(s){
+  const out=[]
+  const b=s.b
+  const side=s.turn
+
+  function add(fy,fx,ty,tx,extra={}){
+    if(!inside(ty,tx))return
+
+    const target=b[ty][tx]
+
+    if(
+      target&&
+      target[0]===side
+    ){
+      return
+    }
+
+    if(
+      target&&
+      target[1]==='K'
+    ){
+      return
+    }
+
+    out.push({
+      fy,fx,ty,tx,
+      ...extra
+    })
+  }
+
+  for(let y=0;y<8;y++){
+    for(let x=0;x<8;x++){
+      const p=b[y][x]
+
+      if(
+        !p||
+        p[0]!==side
+      ){
+        continue
+      }
+
+      const type=p[1]
+
+      if(type==='P'){
+        const d=
+          side==='w'
+            ? -1
+            : 1
+
+        const start=
+          side==='w'
+            ? 6
+            : 1
+
+        const promo=
+          side==='w'
+            ? 0
+            : 7
+
+        const y1=y+d
+
+        if(
+          inside(y1,x)&&
+          !b[y1][x]
+        ){
+          add(
+            y,x,
+            y1,x,
+            y1===promo
+              ? {promo:'Q'}
+              : {}
+          )
+
+          const y2=y+d*2
+
+          if(
+            y===start&&
+            !b[y2][x]
+          ){
+            add(
+              y,x,
+              y2,x,
+              {double:true}
+            )
+          }
+        }
+
+        for(const dx of[-1,1]){
+          const yy=y+d
+          const xx=x+dx
+
+          if(!inside(yy,xx))continue
+
+          const t=b[yy][xx]
+
+          if(
+            t&&
+            t[0]!==side&&
+            t[1]!=='K'
+          ){
+            add(
+              y,x,
+              yy,xx,
+              yy===promo
+                ? {promo:'Q'}
+                : {}
+            )
+          }
+
+          if(
+            s.ep&&
+            s.ep.y===yy&&
+            s.ep.x===xx
+          ){
+            add(
+              y,x,
+              yy,xx,
+              {ep:true}
+            )
+          }
+        }
+      }
+
+      if(type==='N'){
+        for(const[dY,dX]of[
+          [-2,-1],[-2,1],
+          [-1,-2],[-1,2],
+          [1,-2],[1,2],
+          [2,-1],[2,1]
+        ]){
+          add(
+            y,x,
+            y+dY,
+            x+dX
+          )
+        }
+      }
+
+      if(
+        type==='B'||
+        type==='R'||
+        type==='Q'
+      ){
+        const dirs=[]
+
+        if(
+          type==='B'||
+          type==='Q'
+        ){
+          dirs.push(
+            [-1,-1],
+            [-1,1],
+            [1,-1],
+            [1,1]
+          )
+        }
+
+        if(
+          type==='R'||
+          type==='Q'
+        ){
+          dirs.push(
+            [-1,0],
+            [1,0],
+            [0,-1],
+            [0,1]
+          )
+        }
+
+        for(const[dY,dX]of dirs){
+          let yy=y+dY
+          let xx=x+dX
+
+          while(inside(yy,xx)){
+            if(!b[yy][xx]){
+              add(
+                y,x,
+                yy,xx
+              )
+            }else{
+              add(
+                y,x,
+                yy,xx
+              )
+              break
+            }
+
+            yy+=dY
+            xx+=dX
+          }
+        }
+      }
+
+      if(type==='K'){
+        for(let dy=-1;dy<=1;dy++){
+          for(let dx=-1;dx<=1;dx++){
+            if(!dy&&!dx)continue
+
+            add(
+              y,x,
+              y+dy,
+              x+dx
+            )
+          }
+        }
+
+        if(side==='w'&&y===7&&x===4){
+          if(
+            s.castle.K&&
+            b[7][5]===null&&
+            b[7][6]===null&&
+            b[7][7]==='wR'&&
+            !inCheck(s,'w')&&
+            !attacked(s,7,5,'b')&&
+            !attacked(s,7,6,'b')
+          ){
+            add(
+              7,4,
+              7,6,
+              {castle:'K'}
+            )
+          }
+
+          if(
+            s.castle.Q&&
+            b[7][1]===null&&
+            b[7][2]===null&&
+            b[7][3]===null&&
+            b[7][0]==='wR'&&
+            !inCheck(s,'w')&&
+            !attacked(s,7,3,'b')&&
+            !attacked(s,7,2,'b')
+          ){
+            add(
+              7,4,
+              7,2,
+              {castle:'Q'}
+            )
+          }
+        }
+
+        if(side==='b'&&y===0&&x===4){
+          if(
+            s.castle.k&&
+            b[0][5]===null&&
+            b[0][6]===null&&
+            b[0][7]==='bR'&&
+            !inCheck(s,'b')&&
+            !attacked(s,0,5,'w')&&
+            !attacked(s,0,6,'w')
+          ){
+            add(
+              0,4,
+              0,6,
+              {castle:'k'}
+            )
+          }
+
+          if(
+            s.castle.q&&
+            b[0][1]===null&&
+            b[0][2]===null&&
+            b[0][3]===null&&
+            b[0][0]==='bR'&&
+            !inCheck(s,'b')&&
+            !attacked(s,0,3,'w')&&
+            !attacked(s,0,2,'w')
+          ){
+            add(
+              0,4,
+              0,2,
+              {castle:'q'}
+            )
+          }
+        }
+      }
+    }
+  }
+
+  return out
+}
+
+function applyMove(s,m){
+  const n=clone(s)
+  const b=n.b
+
+  const piece=b[m.fy][m.fx]
+  const captured=b[m.ty][m.tx]
+
+  b[m.fy][m.fx]=null
+
+  if(m.ep){
+    const capY=
+      piece[0]==='w'
+        ? m.ty+1
+        : m.ty-1
+
+    b[capY][m.tx]=null
+  }
+
+  b[m.ty][m.tx]=
+    m.promo
+      ? piece[0]+m.promo
+      : piece
+
+  if(m.castle==='K'){
+    b[7][5]=b[7][7]
+    b[7][7]=null
+  }
+
+  if(m.castle==='Q'){
+    b[7][3]=b[7][0]
+    b[7][0]=null
+  }
+
+  if(m.castle==='k'){
+    b[0][5]=b[0][7]
+    b[0][7]=null
+  }
+
+  if(m.castle==='q'){
+    b[0][3]=b[0][0]
+    b[0][0]=null
+  }
+
+  if(piece==='wK'){
+    n.castle.K=false
+    n.castle.Q=false
+  }
+
+  if(piece==='bK'){
+    n.castle.k=false
+    n.castle.q=false
+  }
+
+  if(piece==='wR'){
+    if(m.fy===7&&m.fx===0)n.castle.Q=false
+    if(m.fy===7&&m.fx===7)n.castle.K=false
+  }
+
+  if(piece==='bR'){
+    if(m.fy===0&&m.fx===0)n.castle.q=false
+    if(m.fy===0&&m.fx===7)n.castle.k=false
+  }
+
+  if(captured==='wR'){
+    if(m.ty===7&&m.tx===0)n.castle.Q=false
+    if(m.ty===7&&m.tx===7)n.castle.K=false
+  }
+
+  if(captured==='bR'){
+    if(m.ty===0&&m.tx===0)n.castle.q=false
+    if(m.ty===0&&m.tx===7)n.castle.k=false
+  }
+
+  n.ep=null
+
+  if(
+    piece[1]==='P'&&
+    Math.abs(
+      m.ty-m.fy
+    )===2
+  ){
+    n.ep={
+      y:(m.ty+m.fy)/2,
+      x:m.fx
+    }
+  }
+
+  n.turn=
+    enemy(s.turn)
+
+  return n
+}
+
+function legalMoves(s){
+  const side=s.turn
+
+  return pseudoMoves(s)
+    .filter(
+      m=>{
+        const n=
+          applyMove(s,m)
+
+        return !inCheck(
+          n,
+          side
+        )
+      }
+    )
+}
+
+function capturedByMove(s,m){
+  if(m.ep)return true
+  return Boolean(
+    s.b[m.ty][m.tx]
+  )
+}
+
+function terminal(s){
+  const moves=
+    legalMoves(s)
+
+  if(moves.length){
+    return null
+  }
+
+  if(inCheck(s,s.turn)){
+    return{
+      type:'mate',
+      loser:s.turn
+    }
+  }
+
+  return{
+    type:'draw'
+  }
+}
+
+/* =======================
+   AI
+======================= */
+
+function positional(piece,y,x){
+  const type=piece[1]
+  const color=piece[0]
+
+  const yy=
+    color==='b'
+      ? y
+      : 7-y
+
+  const center=
+    3.5-
+    (
+      Math.abs(x-3.5)+
+      Math.abs(y-3.5)
+    )/2
+
+  if(type==='P'){
+    return yy*7+
+      center*2
+  }
+
+  if(type==='N'){
+    return center*9
+  }
+
+  if(type==='B'){
+    return center*6
+  }
+
+  if(type==='R'){
+    return yy*2
+  }
+
+  if(type==='Q'){
+    return center*2
+  }
+
+  return 0
+}
+
+function evaluate(s){
+  let value=0
+
+  for(let y=0;y<8;y++){
+    for(let x=0;x<8;x++){
+      const p=s.b[y][x]
+
+      if(!p)continue
+
+      const score=
+        VAL[p[1]]+
+        positional(p,y,x)
+
+      value+=
+        p[0]==='b'
+          ? score
+          : -score
+    }
+  }
+
+  return value
+}
+
+function moveScore(s,m){
+  const moving=
+    s.b[m.fy][m.fx]
+
+  const target=
+    s.b[m.ty][m.tx]
+
+  let score=0
+
+  if(target){
+    score+=
+      VAL[target[1]]*10-
+      VAL[moving[1]]
+  }
+
+  if(m.promo){
+    score+=8000
+  }
+
+  if(m.castle){
+    score+=100
+  }
+
+  return score
+}
+
+function ordered(s,moves){
+  return moves
+    .slice()
+    .sort(
+      (a,b)=>
+        moveScore(s,b)-
+        moveScore(s,a)
+    )
+}
+
+function search(
+  s,
+  depth,
+  alpha,
+  beta,
+  deadline
+){
+  if(
+    performance.now()>
+    deadline
+  ){
+    throw TIMEOUT
+  }
+
+  const moves=
+    legalMoves(s)
+
+  if(!moves.length){
+    if(inCheck(s,s.turn)){
+      return s.turn==='b'
+        ? -100000-depth
+        : 100000+depth
+    }
+
+    return 0
+  }
+
+  if(depth===0){
+    return evaluate(s)
+  }
+
+  const list=
+    ordered(s,moves)
+
+  if(s.turn==='b'){
+    let best=-Infinity
+
+    for(const m of list){
+      best=Math.max(
+        best,
+        search(
+          applyMove(s,m),
+          depth-1,
+          alpha,
+          beta,
+          deadline
+        )
+      )
+
+      alpha=Math.max(
+        alpha,
+        best
+      )
+
+      if(beta<=alpha)break
+    }
+
+    return best
+  }
+
+  let best=Infinity
+
+  for(const m of list){
+    best=Math.min(
+      best,
+      search(
+        applyMove(s,m),
+        depth-1,
+        alpha,
+        beta,
+        deadline
+      )
+    )
+
+    beta=Math.min(
+      beta,
+      best
+    )
+
+    if(beta<=alpha)break
+  }
+
+  return best
+}
+
+function findAI(s){
+  const deadline=
+    performance.now()+950
+
+  let finalMove=null
+  let finalScore=-Infinity
+
+  const root=
+    ordered(
+      s,
+      legalMoves(s)
+    )
+
+  for(let depth=1;depth<=4;depth++){
+    try{
+      let bestMove=null
+      let best=-Infinity
+      let alpha=-Infinity
+
+      for(const m of root){
+        const score=
+          search(
+            applyMove(s,m),
+            depth-1,
+            alpha,
+            Infinity,
+            deadline
+          )
+
+        if(
+          score>best||
+          (
+            score===best&&
+            Math.random()<.25
+          )
+        ){
+          best=score
+          bestMove=m
+        }
+
+        alpha=Math.max(
+          alpha,
+          best
+        )
+      }
+
+      if(bestMove){
+        finalMove=bestMove
+        finalScore=best
+      }
+    }catch(e){
+      if(e===TIMEOUT)break
+      throw e
+    }
+  }
+
+  return finalMove||root[0]
+}
+
+/* =======================
+   UI
+======================= */
+
+function coordsFromEvent(e){
+  const r=
+    canvas.getBoundingClientRect()
+
+  let x=
+    Math.floor(
+      (e.clientX-r.left)/
+      r.width*8
+    )
+
+  let y=
+    Math.floor(
+      (e.clientY-r.top)/
+      r.height*8
+    )
+
+  if(flipped){
+    x=7-x
+    y=7-y
+  }
+
+  return{
+    y,
+    x
+  }
+}
+
+function render(){
+  for(let sy=0;sy<8;sy++){
+    for(let sx=0;sx<8;sx++){
+      const y=
+        flipped
+          ? 7-sy
+          : sy
+
+      const x=
+        flipped
+          ? 7-sx
+          : sx
+
+      const light=
+        (
+          x+y
+        )%2===0
+
+      ctx.fillStyle=
+        light
+          ? '#b8c9cc'
+          : '#44636c'
+
+      ctx.fillRect(
+        sx*S,
+        sy*S,
+        S,
+        S
+      )
+
+      if(
+        lastMove&&
+        (
+          (
+            lastMove.fy===y&&
+            lastMove.fx===x
+          )||
+          (
+            lastMove.ty===y&&
+            lastMove.tx===x
+          )
+        )
+      ){
+        ctx.fillStyle=
+          'rgba(255,220,90,.18)'
+
+        ctx.fillRect(
+          sx*S,
+          sy*S,
+          S,
+          S
+        )
+      }
+
+      if(
+        selected&&
+        selected.y===y&&
+        selected.x===x
+      ){
+        const pulse=
+          .34+
+          Math.sin(selectPulse)*.08
+
+        ctx.fillStyle=
+          `rgba(72,232,255,${pulse})`
+
+        ctx.fillRect(
+          sx*S,
+          sy*S,
+          S,
+          S
+        )
+      }
+
+      const move=
+        options.find(
+          m=>
+            m.ty===y&&
+            m.tx===x
+        )
+
+      if(move){
+        const occupied=
+          game.b[y][x]
+
+        if(occupied){
+          ctx.strokeStyle=
+            'rgba(255,220,90,.9)'
+
+          ctx.lineWidth=4
+
+          ctx.strokeRect(
+            sx*S+3,
+            sy*S+3,
+            S-6,
+            S-6
+          )
+        }else{
+          ctx.fillStyle=
+            'rgba(15,45,50,.55)'
+
+          ctx.beginPath()
+
+          ctx.arc(
+            sx*S+S/2,
+            sy*S+S/2,
+            6,
+            0,
+            Math.PI*2
+          )
+
+          ctx.fill()
+        }
+      }
+
+      const p=
+        game.b[y][x]
+
+      if(p){
+        ctx.save()
+
+        ctx.textAlign='center'
+        ctx.textBaseline='middle'
+
+        ctx.font=
+          '42px Georgia, serif'
+
+        if(p[0]==='w'){
+          ctx.fillStyle='#ffffff'
+          ctx.strokeStyle='#26333b'
+        }else{
+          ctx.fillStyle='#111820'
+          ctx.strokeStyle='#d6e5e7'
+        }
+
+        ctx.lineWidth=1.3
+
+        ctx.strokeText(
+          ICON[p],
+          sx*S+S/2,
+          sy*S+S/2+1
+        )
+
+        ctx.fillText(
+          ICON[p],
+          sx*S+S/2,
+          sy*S+S/2+1
+        )
+
+        ctx.restore()
+      }
+    }
+  }
+
+  ctx.font=
+    '8px Arial'
+
+  ctx.fillStyle=
+    '#ffffff70'
+
+  for(let i=0;i<8;i++){
+    const file=
+      String.fromCharCode(
+        97+
+        (
+          flipped
+            ? 7-i
+            : i
+        )
+      )
+
+    const rank=
+      flipped
+        ? i+1
+        : 8-i
+
+    ctx.fillText(
+      file,
+      i*S+3,
+      397
+    )
+
+    ctx.fillText(
+      rank,
+      2,
+      i*S+10
+    )
+  }
+}
+
+function setStatus(){
+  const t=terminal(game)
+
+  if(t){
+    thinking=false
+
+    if(t.type==='draw'){
+      statusEl.textContent=
+        'DRAW • Stalemate'
+
+      detailEl.textContent=
+        'Tidak ada langkah legal.'
+    }else if(t.loser==='b'){
+      statusEl.textContent=
+        'CHECKMATE • YOU WIN 🏆'
+
+      detailEl.textContent=
+        'NEXA AI defeated.'
+
+      soundWin()
+    }else{
+      statusEl.textContent=
+        'CHECKMATE • NEXA WINS'
+
+      detailEl.textContent=
+        'Coba rematch 😭'
+
+      soundLose()
+    }
+
+    return true
+  }
+
+  if(inCheck(game,game.turn)){
+    statusEl.textContent=
+      game.turn==='w'
+        ? 'CHECK! King lu diserang.'
+        : 'CHECK! NEXA dalam bahaya.'
+
+    soundCheck()
+  }else{
+    statusEl.textContent=
+      game.turn==='w'
+        ? 'Your move.'
+        : 'NEXA sedang berpikir...'
+  }
+
+  return false
+}
+
+function doHumanMove(m){
+  initAudio()
+
+  const capture=
+    capturedByMove(game,m)
+
+  game=
+    applyMove(game,m)
+
+  lastMove={
+    fy:m.fy,
+    fx:m.fx,
+    ty:m.ty,
+    tx:m.tx
+  }
+
+  selected=null
+  options=[]
+
+  capture
+    ? soundCapture()
+    : soundMove()
+
+  render()
+
+  if(setStatus())return
+
+  thinking=true
+
+  statusEl.textContent=
+    'NEXA sedang berpikir...'
+
+  detailEl.textContent=
+    'AI menganalisis posisi ♟️'
+
+  setTimeout(aiTurn,70)
+}
+
+function aiTurn(){
+  if(
+    !thinking||
+    game.turn!=='b'
+  ){
+    return
+  }
+
+  const m=
+    findAI(game)
+
+  if(!m){
+    thinking=false
+    setStatus()
+    return
+  }
+
+  const capture=
+    capturedByMove(game,m)
+
+  game=
+    applyMove(game,m)
+
+  lastMove={
+    fy:m.fy,
+    fx:m.fx,
+    ty:m.ty,
+    tx:m.tx
+  }
+
+  thinking=false
+
+  capture
+    ? soundCapture()
+    : soundMove()
+
+  render()
+
+  detailEl.textContent=
+    'NEXA AI • MEDIUM+ • your turn'
+
+  setStatus()
+}
+
+canvas.addEventListener(
+  'pointerdown',
+  e=>{
+    if(
+      thinking||
+      game.turn!=='w'||
+      terminal(game)
+    ){
+      return
+    }
+
+    initAudio()
+
+    const{
+      y,
+      x
+    }=coordsFromEvent(e)
+
+    const chosen=
+      options.find(
+        m=>
+          m.ty===y&&
+          m.tx===x
+      )
+
+    if(chosen){
+      doHumanMove(chosen)
+      return
+    }
+
+    const p=
+      game.b[y][x]
+
+    if(
+      p&&
+      p[0]==='w'
+    ){
+      selected={
+        y,
+        x
+      }
+
+      options=
+        legalMoves(game)
+          .filter(
+            m=>
+              m.fy===y&&
+              m.fx===x
+          )
+
+      render()
+    }else{
+      selected=null
+      options=[]
+      render()
+    }
+  }
+)
+
+function restart(){
+  initAudio()
+
+  game=newState()
+  selected=null
+  options=[]
+  thinking=false
+  lastMove=null
+
+  // Player SELALU di sisi bawah.
+  flipped=
+    playerColor==='b'
+
+  statusEl.textContent=
+    'Your move.'
+
+  detailEl.textContent=
+    'NEXA AI • MEDIUM+ • tap a piece to move'
+
+  tone(
+    350,
+    600,
+    .10,
+    'triangle',
+    .06
+  )
+
+  render()
+}
+
+newBtn.addEventListener(
+  'click',
+  restart
+)
+
+muteBtn.addEventListener(
+  'click',
+  ()=>{
+    initAudio()
+
+    muted=!muted
+
+    muteBtn.textContent=
+      muted
+        ? '🔇'
+        : '🔊'
+
+    if(!muted){
+      tone(
+        600,
+        850,
+        .08,
+        'triangle',
+        .06
+      )
+    }
+  }
+)
+
+flipBtn.addEventListener(
+  'click',
+  ()=>{
+    // POV dikunci.
+    // Player tidak boleh pindah ke atas.
+    flipped=
+      playerColor==='b'
+
+    statusEl.textContent=
+      '🔒 POV terkunci • Kamu selalu di bawah.'
+
+    render()
+  }
+)
+
+// Label mengikuti warna player.
+youColorEl.textContent=
+  playerColor==='w'
+    ? 'WHITE ♙'
+    : 'BLACK ♟'
+
+// Animasi pulse hanya ketika memilih bidak.
+function animateSelection(){
+  if(selected){
+    selectPulse+=.12
+    render()
+  }
+
+  requestAnimationFrame(
+    animateSelection
+  )
+}
+
+render()
+requestAnimationFrame(
+  animateSelection
+)
+})()
+</script>
+
+</body>
+</html>
