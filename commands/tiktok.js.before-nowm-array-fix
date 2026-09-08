@@ -107,28 +107,11 @@ function httpUrl(value) {
 }
 
 function findVideoUrl(data) {
-  // AlwaysCodex TikTok response:
-  // result.downloads.nowm = [url1, url2, ...]
-  const nowm =
-    data?.result?.downloads?.nowm
-
-  if (Array.isArray(nowm)) {
-    const first =
-      nowm.find(httpUrl)
-
-    if (first) {
-      return first
-    }
-  }
-
-  if (httpUrl(nowm)) {
-    return nowm
-  }
-
   const direct =
     findByKeys(
       data,
       [
+        'nowm',
         'no_watermark',
         'nowatermark',
         'noWatermark',
@@ -154,34 +137,10 @@ function findVideoUrl(data) {
   walk(
     data,
     (key, value, path) => {
-      if (fallback) {
-        return
-      }
-
-      if (Array.isArray(value)) {
-        const candidate =
-          value.find(httpUrl)
-
-        const context =
-          `${path.join('.')} ${key}`
-            .toLowerCase()
-
-        if (
-          candidate &&
-          (
-            context.includes('nowm') ||
-            context.includes('video') ||
-            context.includes('play') ||
-            context.includes('download')
-          )
-        ) {
-          fallback = candidate
-        }
-
-        return
-      }
-
-      if (!httpUrl(value)) {
+      if (
+        fallback ||
+        !httpUrl(value)
+      ) {
         return
       }
 
