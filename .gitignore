@@ -36,3 +36,4 @@ package-lock-before-*.json
 # File aneh dengan spasi di belakang nama
 index.js[ ]
 commands/*.before-*
+commands/*.before-*
