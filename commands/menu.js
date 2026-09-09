@@ -296,18 +296,9 @@ function groupCommands(
         'OTHER'
       )
 
-    // OWNER tidak bocor
-    // ke user biasa / Premium.
-    if (
-      (
-        category ===
-          'OWNER' ||
-        command.ownerOnly
-      ) &&
-      !owner
-    ) {
-      continue
-    }
+    // OWNER tetap ditampilkan untuk semua pengguna.
+    // Hak akses eksekusi tetap dijaga oleh global permission gate
+    // (command.ownerOnly), jadi visibility tidak mengubah permission.
 
     if (
       !groups[
@@ -703,6 +694,40 @@ async function sendMenu({
   text,
   useImage = false
 }) {
+  // Untuk menu sangat panjang (.menu all), kirim banner sebagai
+  // pesan terpisah supaya daftar command tidak kepotong caption media.
+  if (
+    useImage &&
+    fs.existsSync(
+      MENU_IMAGE
+    ) &&
+    text.length > 3000
+  ) {
+    try {
+      await sock.sendMessage(
+        jid,
+        {
+          image:
+            fs.readFileSync(
+              MENU_IMAGE
+            ),
+
+          caption:
+            '✦ *NEXA-BOT*\nCOMMAND DIRECTORY'
+        },
+        {
+          quoted:
+            msg
+        }
+      )
+    } catch (err) {
+      console.error(
+        '📋 Menu long banner:',
+        err?.message ||
+        err
+      )
+    }
+  }
   if (
     useImage &&
     fs.existsSync(
@@ -1029,26 +1054,8 @@ export default {
           'OTHER'
         )
 
-      if (
-        (
-          commandCategory ===
-            'OWNER' ||
-          command.ownerOnly
-        ) &&
-        !owner
-      ) {
-        return sock.sendMessage(
-          jid,
-          {
-            text:
-              '❌ Command tidak ditemukan.'
-          },
-          {
-            quoted:
-              msg
-          }
-        )
-      }
+      // Detail command Owner boleh dilihat semua pengguna.
+      // Menjalankan command-nya tetap membutuhkan Owner.
 
       return sendMenu({
         sock,

@@ -37,3 +37,6 @@ package-lock-before-*.json
 index.js[ ]
 commands/*.before-*
 commands/*.before-*
+
+# NEXA managed secondary bot sessions
+sessions-bots/

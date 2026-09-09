@@ -20,6 +20,10 @@ import { pathToFileURL } from 'url'
 import config from './config.js'
 
 import {
+  installChannelPromo
+} from './lib/channelPromo.js'
+
+import {
   isMaintenance,
   getMaintenanceMessage
 } from './lib/maintenance.js'
@@ -1585,14 +1589,19 @@ async function startBotInner() {
     saveCreds
   } =
     await useMultiFileAuthState(
+      process.env.NEXA_SESSION_FOLDER ||
       config.sessionFolder
     )
 
   // PAIRING MODE SELECTOR V2
-  let pairingMode = null
+  let pairingMode =
+    process.env.NEXA_PAIR_NUMBER
+      ? 'code'
+      : null
 
   if (
-    !state.creds.registered
+    !state.creds.registered &&
+    !pairingMode
   ) {
     console.log('')
     console.log(
@@ -1701,6 +1710,18 @@ async function startBotInner() {
       markOnlineOnConnect:
         false
     })
+
+  // =====================================
+  // NEXA CHANNEL PROMO CONTEXT
+  // =====================================
+
+  installChannelPromo(
+    sock,
+    {
+      inviteUrl:
+        'https://whatsapp.com/channel/0029Vb6TEce8V0trHDvkdp32'
+    }
+  )
 
   // =====================================
   // SAVE AUTH
@@ -2245,6 +2266,7 @@ async function startBotInner() {
     console.log('')
 
     let number =
+      process.env.NEXA_PAIR_NUMBER ||
       await question(
         'Nomor WA (contoh 628123456789): '
       )
@@ -2274,6 +2296,19 @@ async function startBotInner() {
           .requestPairingCode(
             number
           )
+
+      // NEXA MULTI-BOT MANAGER IPC V1
+      if (
+        typeof process.send === 'function' &&
+        process.env.NEXA_CHILD_BOT === '1'
+      ) {
+        process.send({
+          type: 'nexa:pairing-code',
+          botId: process.env.NEXA_BOT_ID || null,
+          code,
+          number
+        })
+      }
 
       console.log('')
       console.log(
@@ -2335,6 +2370,17 @@ async function startBotInner() {
         sock.sendPresenceUpdate(
           'available'
         ).catch(() => {})
+
+        if (
+          typeof process.send === 'function' &&
+          process.env.NEXA_CHILD_BOT === '1'
+        ) {
+          process.send({
+            type: 'nexa:online',
+            botId: process.env.NEXA_BOT_ID || null,
+            userJid: sock.user?.id || null
+          })
+        }
         console.log('')
         console.log(
           '✅ NEXA-BOT ONLINE!'
@@ -2425,6 +2471,16 @@ async function startBotInner() {
         console.log(
           '🚪 Session logout / tidak valid.'
         )
+
+        if (
+          typeof process.send === 'function' &&
+          process.env.NEXA_CHILD_BOT === '1'
+        ) {
+          process.send({
+            type: 'nexa:logged-out',
+            botId: process.env.NEXA_BOT_ID || null
+          })
+        }
 
         cancelReconnect()
 
