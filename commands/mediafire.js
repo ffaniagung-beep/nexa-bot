@@ -47,124 +47,70 @@ const UA =
   'Chrome/124.0.0.0 Safari/537.36'
 
 function sleep(ms) {
-  return new Promise(
-    resolve =>
-      setTimeout(
-        resolve,
-        ms
-      )
+  return new Promise(resolve =>
+    setTimeout(resolve, ms)
   )
 }
 
-function isMediaFireUrl(
-  value
-) {
+function isMediaFireUrl(value) {
   try {
-    const url =
-      new URL(
-        value
-      )
-
-    const host =
-      url.hostname
-        .toLowerCase()
+    const url = new URL(value)
+    const host = url.hostname.toLowerCase()
 
     return (
-      host ===
-        'mediafire.com' ||
-      host.endsWith(
-        '.mediafire.com'
-      )
+      host === 'mediafire.com' ||
+      host.endsWith('.mediafire.com')
     )
   } catch {
     return false
   }
 }
 
-function cleanFileName(
-  value,
-  ext
-) {
+function cleanFileName(value, ext) {
   let name =
-    String(
-      value || ''
-    )
-      .replace(
-        /[\u0000-\u001f\u007f]/g,
-        ''
-      )
-      .replace(
-        /[\\/]/g,
-        '_'
-      )
+    String(value || '')
+      .replace(/[\u0000-\u001f\u007f]/g, '')
+      .replace(/[\\/]/g, '_')
       .trim()
 
   const safeExt =
-    String(
-      ext || ''
-    )
-      .replace(
-        /[^a-z0-9]/gi,
-        ''
-      )
+    String(ext || '')
+      .replace(/[^a-z0-9]/gi, '')
       .toLowerCase()
 
   if (!name) {
-    name =
-      safeExt
-        ? `NEXA-MediaFire.${safeExt}`
-        : 'NEXA-MediaFire.bin'
+    name = safeExt
+      ? `NEXA-MediaFire.${safeExt}`
+      : 'NEXA-MediaFire.bin'
   }
 
   if (
     safeExt &&
-    !name
-      .toLowerCase()
-      .endsWith(
-        `.${safeExt}`
-      )
+    !name.toLowerCase().endsWith(`.${safeExt}`)
   ) {
-    name +=
-      `.${safeExt}`
+    name += `.${safeExt}`
   }
 
-  if (
-    name.length > 180
-  ) {
-    const dot =
-      name.lastIndexOf(
-        '.'
-      )
-
+  if (name.length > 180) {
+    const dot = name.lastIndexOf('.')
     const suffix =
-      dot > 0 &&
-      name.length - dot <= 12
+      dot > 0 && name.length - dot <= 12
         ? name.slice(dot)
         : ''
 
     name =
-      name.slice(
-        0,
-        180 -
-          suffix.length
-      ) +
+      name.slice(0, 180 - suffix.length) +
       suffix
   }
 
   return name
 }
 
-function safeMime(
-  value
-) {
-  const mime =
-    String(
-      value || ''
-    ).trim()
+function safeMime(value) {
+  const mime = String(value || '').trim()
 
   if (
-    /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i
-      .test(mime)
+    /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(mime)
   ) {
     return mime
   }
@@ -172,37 +118,22 @@ function safeMime(
   return 'application/octet-stream'
 }
 
-function parseApiSize(
-  value
-) {
+function parseApiSize(value) {
   const match =
-    String(
-      value || ''
-    )
+    String(value || '')
       .trim()
       .match(
         /^([\d.,]+)\s*(B|KB|MB|GB|TB)$/i
       )
 
-  if (!match) {
-    return null
-  }
+  if (!match) return null
 
   const number =
     Number(
-      match[1]
-        .replace(
-          ',',
-          '.'
-        )
+      match[1].replace(',', '.')
     )
 
-  if (
-    !Number.isFinite(
-      number
-    ) ||
-    number < 0
-  ) {
+  if (!Number.isFinite(number) || number < 0) {
     return null
   }
 
@@ -212,37 +143,19 @@ function parseApiSize(
     MB: 2,
     GB: 3,
     TB: 4
-  }[
-    match[2]
-      .toUpperCase()
-  ]
+  }[match[2].toUpperCase()]
 
-  return (
-    number *
-    1024 ** power
-  )
+  return number * (1024 ** power)
 }
 
-function humanBytes(
-  value
-) {
-  const size =
-    Number(
-      value
-    )
+function humanBytes(value) {
+  const size = Number(value)
 
-  if (
-    !Number.isFinite(
-      size
-    ) ||
-    size < 0
-  ) {
+  if (!Number.isFinite(size) || size < 0) {
     return '-'
   }
 
-  if (
-    size < 1024
-  ) {
+  if (size < 1024) {
     return `${size} B`
   }
 
@@ -253,11 +166,8 @@ function humanBytes(
     'TB'
   ]
 
-  let current =
-    size / 1024
-
-  let unit =
-    units[0]
+  let current = size / 1024
+  let unit = units[0]
 
   for (
     let i = 1;
@@ -265,21 +175,110 @@ function humanBytes(
     current >= 1024;
     i++
   ) {
-    current /=
-      1024
-
-    unit =
-      units[i]
+    current /= 1024
+    unit = units[i]
   }
 
-  return (
-    `${current.toFixed(2)} ${unit}`
-  )
+  return `${current.toFixed(2)} ${unit}`
 }
 
-async function requestMediaFire(
-  url
-) {
+function decodeHtml(value) {
+  return String(value || '')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x2F;/gi, '/')
+    .replace(/&#47;/g, '/')
+}
+
+function cookieHeaderFrom(response) {
+  try {
+    if (
+      typeof response.headers.getSetCookie ===
+      'function'
+    ) {
+      return response.headers
+        .getSetCookie()
+        .map(x => x.split(';')[0])
+        .filter(Boolean)
+        .join('; ')
+    }
+  } catch {}
+
+  const single =
+    response.headers.get('set-cookie')
+
+  if (!single) {
+    return ''
+  }
+
+  return single
+    .split(/,(?=[^;,]+=)/)
+    .map(x => x.split(';')[0])
+    .filter(Boolean)
+    .join('; ')
+}
+
+function extractDownloadButton(html) {
+  const tags =
+    String(html || '')
+      .match(/<a\b[^>]*>/gi) ||
+    []
+
+  for (const tag of tags) {
+    if (
+      !/\bid\s*=\s*["']downloadButton["']/i
+        .test(tag)
+    ) {
+      continue
+    }
+
+    const href =
+      tag.match(
+        /\bhref\s*=\s*["']([^"']+)["']/i
+      )?.[1]
+
+    if (
+      href &&
+      /^https?:\/\//i.test(href)
+    ) {
+      return decodeHtml(href)
+    }
+
+    const scrambled =
+      tag.match(
+        /\bdata-scrambled-url\s*=\s*["']([^"']+)["']/i
+      )?.[1]
+
+    if (scrambled) {
+      try {
+        const decoded =
+          Buffer.from(
+            decodeHtml(scrambled),
+            'base64'
+          ).toString('utf8')
+
+        if (
+          /^https?:\/\//i.test(decoded)
+        ) {
+          return decoded
+        }
+      } catch {}
+    }
+  }
+
+  const dynamic =
+    String(html || '')
+      .match(
+        /https?:\/\/download\d+\.mediafire\.com\/[^"'<>\\\s]+/i
+      )?.[0]
+
+  return dynamic
+    ? decodeHtml(dynamic)
+    : ''
+}
+
+async function requestMediaFire(url) {
   let lastError
 
   for (
@@ -307,8 +306,7 @@ async function requestMediaFire(
         await fetch(
           API,
           {
-            method:
-              'POST',
+            method: 'POST',
 
             headers: {
               'Content-Type':
@@ -333,65 +331,49 @@ async function requestMediaFire(
       let json
 
       try {
-        json =
-          JSON.parse(
-            body
-          )
+        json = JSON.parse(body)
       } catch {
         throw new Error(
           `MEDIAFIRE_API_INVALID_JSON_${response.status}`
         )
       }
 
-      if (
-        !response.ok
-      ) {
+      if (!response.ok) {
         throw new Error(
           json?.message ||
           `MEDIAFIRE_API_HTTP_${response.status}`
         )
       }
 
-      if (
-        json?.status !== true
-      ) {
+      if (json?.status !== true) {
         throw new Error(
           json?.message ||
           'MEDIAFIRE_API_FAILED'
         )
       }
 
-      const result =
-        json?.result
+      const result = json?.result
 
       if (
         !result ||
-        typeof result !==
-          'object' ||
-        !result.link
+        typeof result !== 'object'
       ) {
         throw new Error(
-          'MEDIAFIRE_LINK_NOT_FOUND'
+          'MEDIAFIRE_RESULT_NOT_FOUND'
         )
       }
 
       return result
-    } catch (
-      error
-    ) {
-      lastError =
-        error
+    } catch (error) {
+      lastError = error
 
       const text =
         `${
-          error?.cause?.code ||
-          ''
+          error?.cause?.code || ''
         } ${
-          error?.code ||
-          ''
+          error?.code || ''
         } ${
-          error?.message ||
-          ''
+          error?.message || ''
         }`
 
       if (
@@ -399,18 +381,13 @@ async function requestMediaFire(
         /timeout|fetch failed|connection|socket|econn|enotfound/i
           .test(text)
       ) {
-        await sleep(
-          1500
-        )
-
+        await sleep(1500)
         continue
       }
 
       throw error
     } finally {
-      clearTimeout(
-        timer
-      )
+      clearTimeout(timer)
     }
   }
 
@@ -422,9 +399,87 @@ async function requestMediaFire(
   )
 }
 
+async function resolveLocalMediaFireLink(
+  originalUrl
+) {
+  const controller =
+    new AbortController()
+
+  const timer =
+    setTimeout(
+      () => {
+        controller.abort(
+          new Error(
+            'MEDIAFIRE_PAGE_TIMEOUT'
+          )
+        )
+      },
+      API_TIMEOUT
+    )
+
+  try {
+    const response =
+      await fetch(
+        originalUrl,
+        {
+          redirect: 'follow',
+
+          headers: {
+            'User-Agent': UA,
+            Accept:
+              'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language':
+              'id-ID,id;q=0.9,en-US;q=0.8'
+          },
+
+          signal:
+            controller.signal
+        }
+      )
+
+    if (!response.ok) {
+      throw new Error(
+        `MEDIAFIRE_PAGE_HTTP_${response.status}`
+      )
+    }
+
+    const html =
+      await response.text()
+
+    const directUrl =
+      extractDownloadButton(
+        html
+      )
+
+    if (!directUrl) {
+      throw new Error(
+        'MEDIAFIRE_LOCAL_DIRECT_NOT_FOUND'
+      )
+    }
+
+    return {
+      directUrl,
+      cookie:
+        cookieHeaderFrom(
+          response
+        ),
+      referer:
+        response.url ||
+        originalUrl
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function openDownload(
   input,
-  redirectCount = 0
+  {
+    cookie = '',
+    referer =
+      'https://www.mediafire.com/',
+    redirectCount = 0
+  } = {}
 ) {
   return new Promise(
     (
@@ -434,17 +489,13 @@ function openDownload(
       let url
 
       try {
-        url =
-          new URL(
-            input
-          )
+        url = new URL(input)
       } catch {
         reject(
           new Error(
             'MEDIAFIRE_DIRECT_URL_INVALID'
           )
         )
-
         return
       }
 
@@ -452,42 +503,41 @@ function openDownload(
         ![
           'http:',
           'https:'
-        ].includes(
-          url.protocol
-        )
+        ].includes(url.protocol)
       ) {
         reject(
           new Error(
             'MEDIAFIRE_DIRECT_PROTOCOL_INVALID'
           )
         )
-
         return
       }
 
       const client =
-        url.protocol ===
-          'https:'
+        url.protocol === 'https:'
           ? https
           : http
 
-      let settled =
-        false
+      let settled = false
+
+      const headers = {
+        'User-Agent': UA,
+        Accept: '*/*',
+        'Accept-Language':
+          'id-ID,id;q=0.9,en-US;q=0.8',
+        Referer:
+          referer
+      }
+
+      if (cookie) {
+        headers.Cookie = cookie
+      }
 
       const request =
         client.get(
           url,
           {
-            headers: {
-              'User-Agent':
-                UA,
-              Accept:
-                '*/*',
-              'Accept-Language':
-                'id-ID,id;q=0.9,en-US;q=0.8',
-              Referer:
-                'https://www.mediafire.com/'
-            }
+            headers
           },
           response => {
             clearTimeout(
@@ -515,15 +565,12 @@ function openDownload(
                 redirectCount >=
                 MAX_REDIRECTS
               ) {
-                settled =
-                  true
-
+                settled = true
                 reject(
                   new Error(
                     'MEDIAFIRE_TOO_MANY_REDIRECTS'
                   )
                 )
-
                 return
               }
 
@@ -533,17 +580,19 @@ function openDownload(
                   url
                 ).toString()
 
-              settled =
-                true
+              settled = true
 
               resolve(
                 openDownload(
                   next,
-                  redirectCount +
-                    1
+                  {
+                    cookie,
+                    referer,
+                    redirectCount:
+                      redirectCount + 1
+                  }
                 )
               )
-
               return
             }
 
@@ -553,25 +602,34 @@ function openDownload(
             ) {
               response.resume()
 
-              settled =
-                true
+              settled = true
 
               reject(
                 new Error(
                   `MEDIAFIRE_CDN_HTTP_${status}`
                 )
               )
-
               return
             }
 
-            settled =
-              true
+            settled = true
 
             resolve({
               response,
               finalUrl:
-                url.toString()
+                url.toString(),
+              contentType:
+                String(
+                  response.headers[
+                    'content-type'
+                  ] || ''
+                ),
+              contentLength:
+                Number(
+                  response.headers[
+                    'content-length'
+                  ] || 0
+                )
             })
           }
         )
@@ -579,9 +637,7 @@ function openDownload(
       const connectTimer =
         setTimeout(
           () => {
-            if (
-              !settled
-            ) {
+            if (!settled) {
               request.destroy(
                 new Error(
                   'MEDIAFIRE_CDN_CONNECT_TIMEOUT'
@@ -610,15 +666,9 @@ function openDownload(
             connectTimer
           )
 
-          if (
-            !settled
-          ) {
-            settled =
-              true
-
-            reject(
-              error
-            )
+          if (!settled) {
+            settled = true
+            reject(error)
           }
         }
       )
@@ -629,7 +679,9 @@ function openDownload(
 async function downloadToTemp({
   directUrl,
   fileName,
-  expectedBytes
+  expectedBytes,
+  cookie,
+  referer
 }) {
   const dir =
     await mkdtemp(
@@ -658,37 +710,78 @@ async function downloadToTemp({
 
   try {
     const {
-      response
+      response,
+      contentType,
+      contentLength
     } =
       await openDownload(
-        directUrl
+        directUrl,
+        {
+          cookie,
+          referer
+        }
       )
+
+    if (
+      /^text\/html\b/i.test(
+        contentType
+      ) &&
+      expectedBytes &&
+      expectedBytes >
+        1024 * 1024
+    ) {
+      response.resume()
+
+      throw Object.assign(
+        new Error(
+          'MEDIAFIRE_HTML_INSTEAD_OF_FILE'
+        ),
+        {
+          contentType,
+          contentLength
+        }
+      )
+    }
+
+    if (
+      expectedBytes &&
+      contentLength &&
+      contentLength <
+        expectedBytes * 0.75
+    ) {
+      response.resume()
+
+      throw Object.assign(
+        new Error(
+          'MEDIAFIRE_SIZE_MISMATCH_HEADER'
+        ),
+        {
+          expectedBytes,
+          actualBytes:
+            contentLength
+        }
+      )
+    }
 
     await pipeline(
       response,
       createWriteStream(
         filePath,
         {
-          flags:
-            'wx'
+          flags: 'wx'
         }
       )
     )
 
     const info =
-      await stat(
-        filePath
-      )
+      await stat(filePath)
 
     const actualBytes =
       Number(
-        info.size ||
-        0
+        info.size || 0
       )
 
-    if (
-      !actualBytes
-    ) {
+    if (!actualBytes) {
       throw new Error(
         'MEDIAFIRE_EMPTY_FILE'
       )
@@ -703,9 +796,7 @@ async function downloadToTemp({
         actualBytes /
         expectedBytes
 
-      if (
-        ratio < 0.75
-      ) {
+      if (ratio < 0.75) {
         throw Object.assign(
           new Error(
             'MEDIAFIRE_SIZE_MISMATCH'
@@ -719,42 +810,98 @@ async function downloadToTemp({
     }
 
     return {
-      dir,
       filePath,
       actualBytes,
       cleanup
     }
-  } catch (
-    error
-  ) {
+  } catch (error) {
     await cleanup()
     throw error
   }
 }
 
-function errorText(
-  error
-) {
+async function downloadWithFallback({
+  originalUrl,
+  apiDirectUrl,
+  fileName,
+  expectedBytes
+}) {
+  let localError = null
+
+  try {
+    const resolved =
+      await resolveLocalMediaFireLink(
+        originalUrl
+      )
+
+    console.log(
+      '[MEDIAFIRE V3] local direct link resolved'
+    )
+
+    return await downloadToTemp({
+      directUrl:
+        resolved.directUrl,
+      fileName,
+      expectedBytes,
+      cookie:
+        resolved.cookie,
+      referer:
+        resolved.referer
+    })
+  } catch (error) {
+    localError = error
+
+    console.warn(
+      '[MEDIAFIRE V3] local resolve/download failed:',
+      error?.message ||
+      error
+    )
+  }
+
+  if (!apiDirectUrl) {
+    throw localError
+  }
+
+  console.log(
+    '[MEDIAFIRE V3] trying API direct link fallback'
+  )
+
+  return downloadToTemp({
+    directUrl:
+      apiDirectUrl,
+    fileName,
+    expectedBytes,
+    referer:
+      originalUrl
+  })
+}
+
+function errorText(error) {
   const text =
     `${
-      error?.cause?.code ||
-      ''
+      error?.cause?.code || ''
     } ${
-      error?.code ||
-      ''
+      error?.code || ''
     } ${
-      error?.message ||
-      ''
+      error?.message || ''
     }`
 
   if (
-    /SIZE_MISMATCH/i
+    /HTML_INSTEAD_OF_FILE|SIZE_MISMATCH/i
       .test(text)
   ) {
     return (
-      'Direct link MediaFire mengembalikan data yang tidak sesuai ukuran file.\n' +
-      `API: ${humanBytes(error.expectedBytes)} • diterima: ${humanBytes(error.actualBytes)}\n` +
-      'File tidak dikirim supaya NEXA tidak mengirim file HTML/redirect palsu.'
+      'MediaFire mengembalikan halaman HTML/redirect, bukan file asli.\n' +
+      'NEXA membatalkan pengiriman supaya tidak mengirim file palsu.'
+    )
+  }
+
+  if (
+    /LOCAL_DIRECT_NOT_FOUND/i
+      .test(text)
+  ) {
+    return (
+      'Link download asli tidak ditemukan pada halaman MediaFire.'
     )
   }
 
@@ -764,7 +911,7 @@ function errorText(
   ) {
     return (
       'Koneksi ke server MediaFire timeout.\n' +
-      'Coba lagi saat jalur MediaFire/CDN sudah stabil.'
+      'Coba lagi beberapa saat.'
     )
   }
 
@@ -786,15 +933,6 @@ function errorText(
     )
   }
 
-  if (
-    /LINK_NOT_FOUND/i
-      .test(text)
-  ) {
-    return (
-      'Direct link download tidak ditemukan dari MediaFire.'
-    )
-  }
-
   return (
     error?.message &&
     !String(
@@ -810,8 +948,7 @@ function errorText(
 }
 
 export default {
-  name:
-    'mediafire',
+  name: 'mediafire',
 
   aliases: [
     'mf',
@@ -841,9 +978,7 @@ export default {
 
     if (
       !url ||
-      !isMediaFireUrl(
-        url
-      )
+      !isMediaFireUrl(url)
     ) {
       await sock.sendMessage(
         jid,
@@ -855,16 +990,13 @@ export default {
             `${config?.prefix || '.'}mediafire https://www.mediafire.com/file/xxxxx`
         },
         {
-          quoted:
-            msg
+          quoted: msg
         }
       )
-
       return
     }
 
-    let downloaded =
-      null
+    let downloaded = null
 
     try {
       await sock.sendMessage(
@@ -872,18 +1004,15 @@ export default {
         {
           text:
             '✦ *NEXA • MEDIAFIRE*\n\n' +
-            '⏳ Mengambil informasi file...'
+            '⏳ Mengambil metadata dan direct link file...'
         },
         {
-          quoted:
-            msg
+          quoted: msg
         }
       )
 
       const data =
-        await requestMediaFire(
-          url
-        )
+        await requestMediaFire(url)
 
       const fileName =
         cleanFileName(
@@ -912,18 +1041,17 @@ export default {
             '⬇️ Mengunduh file asli dari MediaFire...'
         },
         {
-          quoted:
-            msg
+          quoted: msg
         }
       )
 
       downloaded =
-        await downloadToTemp({
-          directUrl:
+        await downloadWithFallback({
+          originalUrl:
+            url,
+          apiDirectUrl:
             data.link,
-
           fileName,
-
           expectedBytes
         })
 
@@ -932,12 +1060,10 @@ export default {
         {
           document: {
             url:
-              downloaded
-                .filePath
+              downloaded.filePath
           },
 
           fileName,
-
           mimetype,
 
           caption:
@@ -948,18 +1074,14 @@ export default {
             '✅ File berhasil diunduh dan dikirim.'
         },
         {
-          quoted:
-            msg,
-
+          quoted: msg,
           mediaUploadTimeoutMs:
             UPLOAD_TIMEOUT
         }
       )
-    } catch (
-      error
-    ) {
+    } catch (error) {
       console.error(
-        '[MEDIAFIRE V2]',
+        '[MEDIAFIRE V3]',
         error
       )
 
@@ -968,24 +1090,19 @@ export default {
         {
           text:
             '❌ *MediaFire gagal*\n\n' +
-            errorText(
-              error
-            )
+            errorText(error)
         },
         {
-          quoted:
-            msg
+          quoted: msg
         }
       )
     } finally {
       try {
         await downloaded
           ?.cleanup?.()
-      } catch (
-        cleanupError
-      ) {
+      } catch (cleanupError) {
         console.error(
-          '[MEDIAFIRE V2] cleanup:',
+          '[MEDIAFIRE V3] cleanup:',
           cleanupError
         )
       }
