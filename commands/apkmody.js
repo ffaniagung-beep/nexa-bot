@@ -1,4 +1,4 @@
-// NEXA APKMODY CAROUSEL V1
+// NEXA APK AGGREGATOR V1
 import {
   Button,
   Carousel
@@ -26,11 +26,13 @@ import {
   randomBytes
 } from 'node:crypto'
 
-const API_URL =
-  'https://api.alwayscodex.eu.cc/api/downloader/apkmody'
-
-const APKMODY_HOME =
-  'https://apkmody.mobi'
+import {
+  searchAllApk,
+  getApkDetail,
+  resolveApkDownload,
+  downloadApkToTemp,
+  formatBytes
+} from '../lib/apkProviders.js'
 
 const SESSION_TTL =
   15 * 60 * 1000
@@ -66,22 +68,16 @@ function now() {
   return Date.now()
 }
 
-function cleanText(
+function clean(
   value,
   max = 500
 ) {
   return String(
-    value || ''
+    value ?? ''
   )
-    .replace(
-      /\s+/g,
-      ' '
-    )
+    .replace(/\s+/g, ' ')
     .trim()
-    .slice(
-      0,
-      max
-    )
+    .slice(0, max)
 }
 
 function userKey(
@@ -97,21 +93,18 @@ function userKey(
     msg?.key?.participant ||
     jid ||
     ''
-  )
-    .toLowerCase()
+  ).toLowerCase()
 }
 
 function cleanupSessions() {
-  const time =
-    now()
+  const time = now()
 
   for (
     const [id, session]
     of sessions
   ) {
     if (
-      time -
-      session.createdAt >
+      time - session.createdAt >
       SESSION_TTL
     ) {
       sessions.delete(id)
@@ -132,8 +125,9 @@ function cleanupSessions() {
 function makeSession({
   owner,
   query,
-  apiPage,
-  items
+  page,
+  items,
+  providers
 }) {
   cleanupSessions()
 
@@ -151,14 +145,13 @@ function makeSession({
     id,
     owner,
     query,
-    apiPage,
+    page,
     items,
+    providers,
     createdAt:
       now(),
-    selectedIndex:
-      null,
-    detail:
-      null
+    details:
+      new Map()
   }
 
   sessions.set(
@@ -185,11 +178,12 @@ function getSession({
 
   if (
     !session ||
-    session.owner !==
-      owner
+    session.owner !== owner
   ) {
     return null
   }
+
+  session.createdAt = now()
 
   return session
 }
@@ -197,12 +191,8 @@ function getSession({
 function getLatestSession(
   owner
 ) {
-  cleanupSessions()
-
   const id =
-    latestByUser.get(
-      owner
-    )
+    latestByUser.get(owner)
 
   if (!id) {
     return null
@@ -214,235 +204,100 @@ function getLatestSession(
   })
 }
 
+// Keep internal actions on the legacy .apkmody alias.
+// index.js already recognizes `.apkmody __...` as trusted carousel actions.
 function buttonId(
   prefix,
   action,
   sessionId,
-  value = ''
+  value = '',
+  extra = ''
 ) {
   return [
     `${prefix}apkmody`,
     action,
     sessionId,
-    value
+    value,
+    extra
   ]
     .filter(
       part =>
-        String(part)
-          .length
+        String(part).length
     )
     .join(' ')
 }
 
-function resolveMediaUrl(
-  value,
-  source
+function providerIcon(
+  provider
 ) {
-  const raw =
-    String(
-      value || ''
-    )
-      .trim()
-
-  if (!raw) {
-    return null
+  if (
+    provider === 'APKMODY'
+  ) {
+    return '🟣'
   }
-
-  try {
-    return new URL(
-      raw,
-      source ||
-      APKMODY_HOME
-    ).href
-  } catch {
-    return null
-  }
-}
-
-function safeDownloadUrl(
-  value
-) {
-  try {
-    const url =
-      new URL(
-        String(
-          value || ''
-        )
-      )
-
-    if (
-      url.protocol !==
-        'https:' &&
-      url.protocol !==
-        'http:'
-    ) {
-      return null
-    }
-
-    const host =
-      url.hostname
-        .toLowerCase()
-
-    if (
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '::1' ||
-      host.endsWith('.local')
-    ) {
-      return null
-    }
-
-    return url.href
-  } catch {
-    return null
-  }
-}
-
-async function apiRequest(
-  action,
-  payload = {}
-) {
-  const controller =
-    new AbortController()
-
-  const timer =
-    setTimeout(
-      () =>
-        controller.abort(),
-      35_000
-    )
-
-  try {
-    const response =
-      await fetch(
-        API_URL,
-        {
-          method:
-            'POST',
-
-          headers: {
-            'Content-Type':
-              'application/json',
-            Accept:
-              'application/json'
-          },
-
-          body:
-            JSON.stringify({
-              action,
-              ...payload
-            }),
-
-          signal:
-            controller.signal
-        }
-      )
-
-    let data
-
-    try {
-      data =
-        await response.json()
-    } catch {
-      throw new Error(
-        `API_BAD_JSON_${response.status}`
-      )
-    }
-
-    if (
-      !response.ok ||
-      data?.status !==
-        true ||
-      !data?.result
-    ) {
-      const message =
-        cleanText(
-          data?.message ||
-          data?.error ||
-          `API_HTTP_${response.status}`,
-          180
-        )
-
-      throw new Error(
-        message ||
-        'API_FAILED'
-      )
-    }
-
-    return data.result
-  } catch (error) {
-    if (
-      error?.name ===
-      'AbortError'
-    ) {
-      throw new Error(
-        'API_TIMEOUT'
-      )
-    }
-
-    throw error
-  } finally {
-    clearTimeout(
-      timer
-    )
-  }
-}
-
-function formatDate(
-  value
-) {
-  if (!value) {
-    return '-'
-  }
-
-  const date =
-    new Date(value)
 
   if (
-    Number.isNaN(
-      date.getTime()
-    )
+    provider === 'AN1'
   ) {
-    return cleanText(
-      value,
-      60
+    return '🔵'
+  }
+
+  if (
+    provider === 'LiteAPKs'
+  ) {
+    return '🟠'
+  }
+
+  return '🌐'
+}
+
+function searchBody(
+  item
+) {
+  const lines = [
+    `*${clean(item?.title || 'APK', 100)}*`,
+    '',
+    `${providerIcon(item?.providerLabel)} ${clean(item?.providerLabel || '-', 40)}`
+  ]
+
+  if (item?.version) {
+    lines.push(
+      `🏷 ${clean(item.version, 80)}`
     )
   }
 
-  return new Intl.DateTimeFormat(
-    'id-ID',
-    {
-      day:
-        '2-digit',
-      month:
-        'short',
-      year:
-        'numeric'
-    }
-  ).format(date)
-}
-
-function appBody(
-  item
-) {
-  const title =
-    cleanText(
-      item?.title ||
-      'Tanpa judul',
-      90
+  if (item?.size) {
+    lines.push(
+      `📦 ${clean(item.size, 60)}`
     )
+  }
 
-  const version =
-    cleanText(
-      item?.version ||
-      '-',
-      150
+  if (item?.mod) {
+    lines.push(
+      `⚡ ${clean(item.mod, 120)}`
     )
+  }
 
-  return (
-    `*${title}*\n\n` +
-    `🏷 ${version}`
-  )
+  if (
+    Number.isFinite(
+      item?.rating
+    )
+  ) {
+    lines.push(
+      `⭐ ${item.rating}`
+    )
+  }
+
+  if (
+    item?.developer &&
+    lines.length < 7
+  ) {
+    lines.push(
+      `👤 ${clean(item.developer, 80)}`
+    )
+  }
+
+  return lines.join('\n')
 }
 
 async function makeCard({
@@ -474,16 +329,12 @@ async function makeCard({
 
   if (image) {
     try {
-      return await build(
-        image
-      )
-    } catch (
-      err
-    ) {
-      console.error(
-        '[APKMODY] Card image fallback:',
-        err?.message ||
-        err
+      return await build(image)
+    } catch (error) {
+      console.warn(
+        '[APK] card image:',
+        error?.message ||
+        error
       )
     }
   }
@@ -494,8 +345,25 @@ async function makeCard({
     )
   }
 
-  return build(
-    `${APKMODY_HOME}/static/img/default.png`
+  throw new Error(
+    'APK_CARD_MEDIA_MISSING'
+  )
+}
+
+function providersText(
+  providers
+) {
+  const ok =
+    (providers || [])
+      .filter(x => x.ok)
+
+  return (
+    `${ok.length}/${(providers || []).length || 3} sumber aktif` +
+    (
+      ok.length
+        ? ` • ${ok.map(x => x.label).join(', ')}`
+        : ''
+    )
   )
 }
 
@@ -522,56 +390,37 @@ async function sendSearchCarousel({
     Math.min(
       Math.max(
         0,
-        Number(slice) ||
-        0
+        Number(slice) || 0
       ),
       totalSlices - 1
     )
 
   const start =
-    page *
-    CARDS_PER_PAGE
+    page * CARDS_PER_PAGE
 
   const end =
     Math.min(
-      start +
-      CARDS_PER_PAGE,
+      start + CARDS_PER_PAGE,
       total
-    )
-
-  const visible =
-    session.items.slice(
-      start,
-      end
     )
 
   const cards = []
 
   for (
-    let offset = 0;
-    offset <
-      visible.length;
-    offset += 1
+    let index = start;
+    index < end;
+    index++
   ) {
     const item =
-      visible[offset]
+      session.items[index]
 
-    const index =
-      start +
-      offset
-
-    const image =
-      resolveMediaUrl(
-        item?.cover,
-        item?.url
-      )
-
-    const card =
+    cards.push(
       await makeCard({
         sock,
-        image,
+        image:
+          item.icon,
         body:
-          appBody(item),
+          searchBody(item),
         replies: [
           {
             text:
@@ -597,21 +446,16 @@ async function sendSearchCarousel({
           }
         ]
       })
-
-    cards.push(card)
+    )
   }
 
   if (
-    totalSlices >
-    1
+    totalSlices > 1
   ) {
-    const navReplies = []
+    const replies = []
 
-    if (
-      page >
-      0
-    ) {
-      navReplies.push({
+    if (page > 0) {
+      replies.push({
         text:
           '← Sebelumnya',
         id:
@@ -625,10 +469,9 @@ async function sendSearchCarousel({
     }
 
     if (
-      page <
-      totalSlices - 1
+      page < totalSlices - 1
     ) {
-      navReplies.push({
+      replies.push({
         text:
           'Berikutnya →',
         id:
@@ -641,76 +484,68 @@ async function sendSearchCarousel({
       })
     }
 
-    const navCard =
+    cards.push(
       await makeCard({
         sock,
         image:
-          fallbackImage ||
-          `${APKMODY_HOME}/static/img/default.png`,
+          fallbackImage,
         body:
           `*Hasil lainnya*\n\n` +
           `${start + 1}–${end} dari ${total}\n` +
           `Geser atau pindah halaman.`,
-        replies:
-          navReplies
+        replies
       })
-
-    cards.push(
-      navCard
     )
   }
 
   const carousel =
     new Carousel(sock)
       .setBody(
-        `✦ *NEXA • APKMODY*\n\n` +
-        `⌕ “${cleanText(session.query, 80)}”\n` +
-        `Hasil ${start + 1}–${end} dari ${total} • API page ${session.apiPage}`
+        `✦ *NEXA • APK*\n\n` +
+        `⌕ “${clean(session.query, 80)}”\n` +
+        `Hasil ${start + 1}–${end} dari ${total}\n` +
+        `${providersText(session.providers)}`
       )
       .setFooter(
-        'Geser kanan / kiri • pilih action di card'
+        'Geser kanan / kiri • sumber tertera di tiap card'
       )
-      .addCard(
-        cards
-      )
+      .addCard(cards)
 
-  await carousel.send(
-    jid
-  )
+  await carousel.send(jid)
 }
 
-async function fetchDetail(
+async function ensureDetail(
   session,
   index
 ) {
-  const item =
-    session.items[index]
-
   if (
-    !item?.url
+    !Number.isInteger(index) ||
+    !session.items[index]
   ) {
     throw new Error(
       'SEARCH_ITEM_INVALID'
     )
   }
 
+  if (
+    session.details.has(index)
+  ) {
+    return session.details.get(
+      index
+    )
+  }
+
   const detail =
-    await apiRequest(
-      'detail',
-      {
-        url:
-          item.url
-      }
+    await getApkDetail(
+      session.items[index]
     )
 
-  session.selectedIndex =
-    index
-
-  session.detail =
+  session.details.set(
+    index,
     detail
+  )
 
-  session.createdAt =
-    now()
+  session.createdAt = now()
 
   return detail
 }
@@ -718,41 +553,69 @@ async function fetchDetail(
 function detailBody(
   detail
 ) {
-  const download =
-    Array.isArray(
-      detail?.downloads
-    )
-      ? detail.downloads[0]
-      : null
-
   const lines = [
-    `*${cleanText(detail?.title || 'APK', 100)}*`,
+    `*${clean(detail.title || 'APK', 120)}*`,
     '',
-    `🏷 Version: ${cleanText(detail?.version || '-', 80)}`,
-    `⚡ MOD: ${cleanText(detail?.mod || '-', 180)}`,
-    `📦 Size: ${cleanText(download?.size || '-', 60)}`,
-    `📱 Package: ${cleanText(detail?.package || '-', 150)}`,
-    `🗓 Updated: ${formatDate(detail?.updated)}`
+    `${providerIcon(detail.providerLabel)} Source: ${clean(detail.providerLabel, 50)}`
   ]
 
-  const historyCount =
-    Array.isArray(
-      detail?.history
-    )
-      ? detail.history.length
-      : 0
-
-  if (
-    historyCount
-  ) {
+  if (detail.version) {
     lines.push(
-      `🕘 Versions: ${historyCount}`
+      `🏷 Version: ${clean(detail.version, 80)}`
     )
   }
 
-  return lines.join(
-    '\n'
+  if (detail.mod) {
+    lines.push(
+      `⚡ MOD: ${clean(detail.mod, 180)}`
+    )
+  }
+
+  if (detail.size) {
+    lines.push(
+      `📦 Size: ${clean(detail.size, 60)}`
+    )
+  }
+
+  if (detail.package) {
+    lines.push(
+      `📱 Package: ${clean(detail.package, 120)}`
+    )
+  }
+
+  if (detail.android) {
+    lines.push(
+      `🤖 Android: ${clean(detail.android, 80)}`
+    )
+  }
+
+  if (detail.updated) {
+    lines.push(
+      `🗓 Updated: ${clean(detail.updated, 100)}`
+    )
+  }
+
+  if (detail.developer) {
+    lines.push(
+      `👤 Developer: ${clean(detail.developer, 100)}`
+    )
+  }
+
+  if (
+    Number.isFinite(
+      detail.rating
+    )
+  ) {
+    lines.push(
+      `⭐ Rating: ${detail.rating}`
+    )
+  }
+
+  lines.push(
+    `📥 File: ${detail.downloads.length} opsi`
   )
+
+  return lines.join('\n')
 }
 
 async function sendDetail({
@@ -763,163 +626,114 @@ async function sendDetail({
   index
 }) {
   const detail =
-    await fetchDetail(
+    await ensureDetail(
       session,
       index
     )
 
-  const image =
-    resolveMediaUrl(
-      detail?.icon,
-      detail?.source
-    ) ||
-    resolveMediaUrl(
-      session.items[index]
-        ?.cover,
-      session.items[index]
-        ?.url
-    )
-
-  const message =
+  let message =
     new Button(sock)
       .setImage(
-        image ||
-        fallbackImage ||
-        `${APKMODY_HOME}/static/img/default.png`
+        detail.icon ||
+        session.items[index]?.icon ||
+        fallbackImage
       )
       .setTitle(
-        'NEXA • APKMODY'
+        'NEXA • APK'
       )
       .setBody(
-        detailBody(
-          detail
-        )
+        detailBody(detail)
       )
       .setFooter(
-        'Pilih action di bawah'
+        'Data berasal dari provider yang tertera'
       )
-      .addReply(
-        '⬇ Download Latest',
+
+  if (
+    detail.downloads.length === 1
+  ) {
+    message =
+      message.addReply(
+        '⬇ Download',
         buttonId(
           config.prefix,
-          '__download',
+          '__optdl',
+          session.id,
+          index,
+          0
+        )
+      )
+  } else if (
+    detail.downloads.length > 1
+  ) {
+    message =
+      message.addReply(
+        '📦 Pilih File',
+        buttonId(
+          config.prefix,
+          '__options',
           session.id,
           index
         )
       )
-
-  if (
-    Array.isArray(
-      detail?.history
-    ) &&
-    detail.history.length
-  ) {
-    message.addReply(
-      '🕘 Version History',
-      buttonId(
-        config.prefix,
-        '__history',
-        session.id
-      )
-    )
   }
 
-  await message.send(
-    jid
-  )
+  await message.send(jid)
 }
 
-async function ensureDetail(
-  session,
-  index
-) {
-  if (
-    session.detail &&
-    session.selectedIndex ===
-      index
-  ) {
-    return session.detail
-  }
-
-  return fetchDetail(
-    session,
-    index
-  )
-}
-
-async function sendHistory({
+async function sendOptions({
   sock,
   jid,
   config,
-  session
+  session,
+  index
 }) {
-  const index =
-    session.selectedIndex
-
-  if (
-    index === null ||
-    index === undefined
-  ) {
-    throw new Error(
-      'DETAIL_NOT_SELECTED'
-    )
-  }
-
   const detail =
     await ensureDetail(
       session,
       index
     )
 
-  const history =
-    Array.isArray(
-      detail?.history
+  if (!detail.downloads.length) {
+    throw new Error(
+      'DOWNLOAD_FILE_NOT_FOUND'
     )
-      ? detail.history
-      : []
-
-  if (
-    !history.length
-  ) {
-    await sock.sendMessage(
-      jid,
-      {
-        text:
-          `✦ *NEXA • APKMODY*\n\n` +
-          `Belum ada version history untuk *${cleanText(detail?.title || 'APK', 100)}*.`
-      }
-    )
-
-    return
   }
 
-  const image =
-    resolveMediaUrl(
-      detail?.icon,
-      detail?.source
-    ) ||
-    fallbackImage ||
-    `${APKMODY_HOME}/static/img/default.png`
+  if (
+    detail.downloads.length === 1
+  ) {
+    return downloadOption({
+      sock,
+      jid,
+      config,
+      session,
+      index,
+      optionIndex: 0,
+      msg: null
+    })
+  }
 
   const cards = []
 
   for (
     let i = 0;
-    i <
-      history.length;
-    i += 1
+    i < detail.downloads.length;
+    i++
   ) {
-    const item =
-      history[i]
+    const option =
+      detail.downloads[i]
 
-    const card =
+    cards.push(
       await makeCard({
         sock,
-        image,
+        image:
+          detail.icon ||
+          session.items[index]?.icon ||
+          fallbackImage,
         body:
-          `*${cleanText(item?.version || `Version ${i + 1}`, 80)}*\n\n` +
-          `🗓 ${cleanText(item?.date || '-', 80)}\n` +
-          `📦 ${cleanText(item?.size || '-', 60)}`,
+          `*${clean(option.name || `File ${i + 1}`, 140)}*\n\n` +
+          `${providerIcon(detail.providerLabel)} ${clean(detail.providerLabel, 50)}\n` +
+          `📦 ${clean(option.size || detail.size || '-', 70)}`,
         replies: [
           {
             text:
@@ -927,263 +741,124 @@ async function sendHistory({
             id:
               buttonId(
                 config.prefix,
-                '__historydl',
+                '__optdl',
                 session.id,
+                index,
                 i
               )
           }
         ]
       })
-
-    cards.push(
-      card
     )
   }
 
   const carousel =
     new Carousel(sock)
       .setBody(
-        `✦ *NEXA • VERSION HISTORY*\n\n` +
-        `${cleanText(detail?.title || 'APK', 100)}\n` +
-        `${history.length} versi tersedia`
+        `✦ *NEXA • PILIH FILE*\n\n` +
+        `${clean(detail.title, 100)}\n` +
+        `${detail.downloads.length} opsi tersedia`
       )
       .setFooter(
-        'Geser untuk memilih versi'
+        'Geser lalu pilih file yang ingin diunduh'
       )
-      .addCard(
-        cards
-      )
+      .addCard(cards)
 
-  await carousel.send(
-    jid
-  )
-}
-
-function mimeFor(
-  file
-) {
-  const name =
-    String(
-      file?.fileName ||
-      ''
-    )
-      .toLowerCase()
-
-  if (
-    name.endsWith(
-      '.apk'
-    ) ||
-    String(
-      file?.type ||
-      ''
-    )
-      .toLowerCase() ===
-      'apk'
-  ) {
-    return 'application/vnd.android.package-archive'
-  }
-
-  return 'application/octet-stream'
+  await carousel.send(jid)
 }
 
 function feeText(
   access
 ) {
-  if (
-    access?.owner
-  ) {
+  if (access?.owner) {
     return 'Gratis • Owner 👑'
   }
 
-  if (
-    access?.premium
-  ) {
+  if (access?.premium) {
     return 'Gratis • Premium ⭐'
   }
 
   return `${DOWNLOAD_COST} Limit`
 }
 
-async function downloadPackage({
+function mimeFor(
+  resolved
+) {
+  const name =
+    String(
+      resolved?.filename || ''
+    ).toLowerCase()
+
+  if (
+    name.endsWith('.apk')
+  ) {
+    return 'application/vnd.android.package-archive'
+  }
+
+  if (
+    name.endsWith('.zip') ||
+    name.endsWith('.xapk') ||
+    name.endsWith('.apks')
+  ) {
+    return 'application/zip'
+  }
+
+  return (
+    resolved?.mimetype ||
+    'application/octet-stream'
+  )
+}
+
+async function downloadOption({
   sock,
   msg,
   jid,
   session,
-  historyIndex = null,
-  searchIndex = null
+  index,
+  optionIndex
 }) {
-  const owner =
+  const lockKey =
     session.owner
 
   if (
-    downloadLocks.has(
-      owner
-    )
+    downloadLocks.has(lockKey)
   ) {
     await sock.sendMessage(
       jid,
       {
         text:
-          `✦ *NEXA • APKMODY*\n\n` +
-          `⏳ Satu paket masih diproses.\n` +
-          `Tunggu sampai pengiriman sebelumnya selesai.`
+          `✦ *NEXA • APK*\n\n` +
+          `⏳ Satu file masih diproses. Tunggu sampai selesai.`
       },
-      {
-        quoted:
-          msg
-      }
+      msg
+        ? { quoted: msg }
+        : undefined
     )
 
     return
   }
 
-  downloadLocks.add(
-    owner
-  )
+  downloadLocks.add(lockKey)
 
-  let charged =
-    false
-
-  let access =
-    null
+  let downloaded = null
+  let charged = false
+  let access = null
 
   try {
-    let detail
-
-    let targetUrl
-
-    if (
-      historyIndex !==
-      null
-    ) {
-      if (
-        session.selectedIndex ===
-          null ||
-        session.selectedIndex ===
-          undefined
-      ) {
-        throw new Error(
-          'DETAIL_NOT_SELECTED'
-        )
-      }
-
-      detail =
-        await ensureDetail(
-          session,
-          session.selectedIndex
-        )
-
-      const history =
-        detail?.history?.[
-          historyIndex
-        ]
-
-      if (
-        !history?.url
-      ) {
-        throw new Error(
-          'HISTORY_ITEM_INVALID'
-        )
-      }
-
-      targetUrl =
-        history.url
-    } else {
-      const index =
-        searchIndex ??
-        session.selectedIndex
-
-      if (
-        index === null ||
-        index === undefined
-      ) {
-        throw new Error(
-          'DETAIL_NOT_SELECTED'
-        )
-      }
-
-      detail =
-        await ensureDetail(
-          session,
-          index
-        )
-
-      targetUrl =
-        detail?.source ||
-        session.items[index]
-          ?.url
-    }
-
-    if (!targetUrl) {
-      throw new Error(
-        'DOWNLOAD_SOURCE_MISSING'
+    const detail =
+      await ensureDetail(
+        session,
+        index
       )
-    }
 
-    let result
+    const option =
+      detail.downloads[
+        optionIndex
+      ]
 
-    try {
-      result =
-        await apiRequest(
-          'download',
-          {
-            url:
-              targetUrl
-          }
-        )
-    } catch (
-      apiError
-    ) {
-      if (
-        historyIndex ===
-          null &&
-        Array.isArray(
-          detail?.downloads
-        ) &&
-        detail.downloads[0]
-          ?.url
-      ) {
-        result = {
-          title:
-            detail.title,
-          version:
-            detail.version,
-          mod:
-            detail.mod,
-          downloads:
-            detail.downloads
-        }
-      } else {
-        throw apiError
-      }
-    }
-
-    const file =
-      Array.isArray(
-        result?.downloads
-      )
-        ? result.downloads.find(
-            item =>
-              safeDownloadUrl(
-                item?.url
-              )
-          )
-        : null
-
-    if (!file) {
+    if (!option) {
       throw new Error(
         'DOWNLOAD_FILE_NOT_FOUND'
-      )
-    }
-
-    const fileUrl =
-      safeDownloadUrl(
-        file.url
-      )
-
-    if (!fileUrl) {
-      throw new Error(
-        'DOWNLOAD_URL_INVALID'
       )
     }
 
@@ -1195,66 +870,43 @@ async function downloadPackage({
           DOWNLOAD_COST
       })
 
-    if (
-      !access.allowed
-    ) {
+    if (!access.allowed) {
       await sendLimitEmpty({
         sock,
         msg,
         jid
       })
-
       return
     }
-
-    const title =
-      cleanText(
-        result?.title ||
-        detail?.title ||
-        'APK',
-        120
-      )
-
-    const version =
-      cleanText(
-        result?.version ||
-        detail?.version ||
-        '-',
-        80
-      )
-
-    const mod =
-      cleanText(
-        result?.mod ||
-        detail?.mod ||
-        '-',
-        180
-      )
-
-    const size =
-      cleanText(
-        file?.size ||
-        '-',
-        60
-      )
 
     await sock.sendMessage(
       jid,
       {
         text:
-          `✦ *NEXA • APKMODY*\n\n` +
+          `✦ *NEXA • APK*\n\n` +
           `⬇ *Menyiapkan paket...*\n\n` +
-          `📱 ${title}\n` +
-          `🏷 v${version.replace(/^v/i, '')}\n` +
-          `📦 ${size}\n` +
+          `📱 ${clean(detail.title, 120)}\n` +
+          `🏷 ${clean(detail.version || 'Latest', 80)}\n` +
+          `📦 ${clean(option.size || detail.size || '-', 60)}\n` +
+          `${providerIcon(detail.providerLabel)} ${clean(detail.providerLabel, 50)}\n` +
           `🎟 Biaya: ${feeText(access)}\n\n` +
-          `NEXA sedang menyiapkan APK untuk dikirim.`
+          `NEXA sedang mengambil file dari provider.`
       },
-      {
-        quoted:
-          msg
-      }
+      msg
+        ? { quoted: msg }
+        : undefined
     )
+
+    const resolved =
+      await resolveApkDownload(
+        detail,
+        optionIndex
+      )
+
+    downloaded =
+      await downloadApkToTemp(
+        resolved
+      )
 
     const payment =
       chargeLimit({
@@ -1264,15 +916,12 @@ async function downloadPackage({
           DOWNLOAD_COST
       })
 
-    if (
-      !payment.success
-    ) {
+    if (!payment.success) {
       await sendLimitEmpty({
         sock,
         msg,
         jid
       })
-
       return
     }
 
@@ -1281,59 +930,43 @@ async function downloadPackage({
         payment.charged
       )
 
-    const fileName =
-      cleanText(
-        file?.fileName ||
-        `${title}-${version}.apk`,
-        180
-      )
-        .replace(
-          /[\\/:*?"<>|]+/g,
-          '_'
-        )
-
     await sock.sendMessage(
       jid,
       {
         document: {
           url:
-            fileUrl
+            downloaded.filePath
         },
-
+        fileName:
+          downloaded.filename,
         mimetype:
-          mimeFor(
-            file
-          ),
-
-        fileName,
-
+          mimeFor(resolved),
         caption:
-          `✦ *NEXA • APKMODY*\n\n` +
+          `✦ *NEXA • APK*\n\n` +
           `✓ *Paket berhasil disiapkan*\n\n` +
-          `📱 ${title}\n` +
-          `🏷 ${version}\n` +
-          `⚡ ${mod}\n` +
-          `📦 ${size}\n` +
+          `📱 ${clean(detail.title, 120)}\n` +
+          `🏷 ${clean(detail.version || 'Latest', 80)}\n` +
+          `⚡ ${clean(detail.mod || 'Original / Free', 180)}\n` +
+          `📦 ${formatBytes(downloaded.actualBytes)}\n` +
+          `${providerIcon(detail.providerLabel)} ${clean(detail.providerLabel, 50)}\n` +
           `🎟 ${access.unlimited ? 'Gratis' : `-${DOWNLOAD_COST} Limit`}\n\n` +
-          `⚠️ APK mod berasal dari pihak ketiga. Pastikan kamu memahami izin dan sumber file sebelum memasang.`
+          `⚠️ APK berasal dari pihak ketiga. Periksa sumber dan izin aplikasi sebelum memasang.`
       },
       {
-        quoted:
-          msg,
-
+        ...(msg
+          ? { quoted: msg }
+          : {}),
         mediaUploadTimeoutMs:
-          15 * 60 * 1000
+          20 * 60 * 1000
       }
     )
 
     console.log(
-      '✅ APKMODY download:',
-      title,
-      fileName
+      `✅ APK download [${detail.providerLabel}]:`,
+      detail.title,
+      downloaded.filename
     )
-  } catch (
-    error
-  ) {
+  } catch (error) {
     if (
       charged &&
       access?.userJid
@@ -1343,18 +976,16 @@ async function downloadPackage({
           access.userJid,
           DOWNLOAD_COST
         )
-      } catch (
-        refundError
-      ) {
+      } catch (refundError) {
         console.error(
-          '[APKMODY] Refund gagal:',
+          '[APK] Refund gagal:',
           refundError
         )
       }
     }
 
     console.error(
-      '[APKMODY] Download:',
+      '[APK] Download:',
       error
     )
 
@@ -1363,33 +994,104 @@ async function downloadPackage({
         ? `\n🎟 ${DOWNLOAD_COST} Limit dikembalikan.`
         : ''
 
-    const timeout =
-      error?.message ===
-        'API_TIMEOUT'
+    let reason =
+      'File belum berhasil dikirim.'
+
+    const code =
+      String(
+        error?.message || ''
+      )
+
+    if (
+      /DIRECT_NOT_FOUND|DOWNLOAD_FILE_NOT_FOUND|OPTION_INVALID/i
+        .test(code)
+    ) {
+      reason =
+        'Provider tidak memberikan direct download yang valid.'
+    } else if (
+      /FILE_IS_HTML|SIZE_MISMATCH/i
+        .test(code)
+    ) {
+      reason =
+        'Provider mengembalikan halaman/berkas yang tidak sesuai. NEXA membatalkan pengiriman.'
+    } else if (
+      /CURL_|TIMEOUT|fetch failed|ECONN|ENOTFOUND/i
+        .test(code)
+    ) {
+      reason =
+        'Koneksi ke provider/CDN sedang bermasalah.'
+    }
 
     await sock.sendMessage(
       jid,
       {
         text:
-          `⚠️ *NEXA • APKMODY*\n\n` +
-          (
-            timeout
-              ? 'Server APKMODY terlalu lama merespons.'
-              : 'Paket belum berhasil dikirim.'
-          ) +
-          `${refund}\n` +
-          `Coba lagi beberapa saat nanti.`
+          `⚠️ *NEXA • APK*\n\n` +
+          `${reason}${refund}\n` +
+          `Coba provider/card lain atau ulangi nanti.`
       },
-      {
-        quoted:
-          msg
-      }
+      msg
+        ? { quoted: msg }
+        : undefined
     )
   } finally {
+    try {
+      await downloaded
+        ?.cleanup?.()
+    } catch (cleanupError) {
+      console.error(
+        '[APK] cleanup:',
+        cleanupError
+      )
+    }
+
     downloadLocks.delete(
-      owner
+      lockKey
     )
   }
+}
+
+async function downloadFromSearch({
+  sock,
+  msg,
+  jid,
+  config,
+  session,
+  index
+}) {
+  const detail =
+    await ensureDetail(
+      session,
+      index
+    )
+
+  if (!detail.downloads.length) {
+    throw new Error(
+      'DOWNLOAD_FILE_NOT_FOUND'
+    )
+  }
+
+  if (
+    detail.downloads.length > 1
+  ) {
+    await sendOptions({
+      sock,
+      jid,
+      config,
+      session,
+      index
+    })
+    return
+  }
+
+  await downloadOption({
+    sock,
+    msg,
+    jid,
+    session,
+    index,
+    optionIndex: 0
+  })
 }
 
 async function searchApps({
@@ -1405,50 +1107,41 @@ async function searchApps({
     jid,
     {
       text:
-        `✦ *NEXA • APKMODY*\n\n` +
-        `⌕ Sedang mencari *${cleanText(query, 80)}*...\n` +
-        `NEXA lagi menyisir katalog. Tunggu sebentar.`
+        `✦ *NEXA • APK*\n\n` +
+        `⌕ Sedang mencari *${clean(query, 80)}*...\n` +
+        `NEXA menyisir APKMODY, AN1, dan LiteAPKs.`
     },
     {
-      quoted:
-        msg
+      quoted: msg
     }
   )
 
   const result =
-    await apiRequest(
-      'search',
-      {
-        query,
-        page:
-          String(page)
-      }
+    await searchAllApk(
+      query,
+      page
     )
 
-  const items =
-    Array.isArray(
-      result?.items
-    )
-      ? result.items.filter(
-          item =>
-            item?.title &&
-            item?.url
-        )
-      : []
+  if (!result.items.length) {
+    const anyHealthy =
+      result.providers.some(
+        item => item.ok
+      )
 
-  if (
-    !items.length
-  ) {
     await sock.sendMessage(
       jid,
       {
         text:
-          `✦ *NEXA • APKMODY*\n\n` +
-          `Tidak ada hasil untuk *${cleanText(query, 80)}*.`
+          `✦ *NEXA • APK*\n\n` +
+          (
+            anyHealthy
+              ? `Tidak ada hasil untuk *${clean(query, 80)}*.`
+              : 'Semua provider sedang gagal dihubungi.'
+          ) +
+          `\n${providersText(result.providers)}`
       },
       {
-        quoted:
-          msg
+        quoted: msg
       }
     )
 
@@ -1458,13 +1151,12 @@ async function searchApps({
   const session =
     makeSession({
       owner,
-      query:
-        result?.query ||
-        query,
-      apiPage:
-        result?.page ||
-        String(page),
-      items
+      query,
+      page,
+      items:
+        result.items,
+      providers:
+        result.providers
     })
 
   await sendSearchCarousel({
@@ -1472,8 +1164,7 @@ async function searchApps({
     jid,
     config,
     session,
-    slice:
-      0
+    slice: 0
   })
 }
 
@@ -1481,16 +1172,18 @@ function helpText(
   prefix
 ) {
   return (
-    `✦ *NEXA • APKMODY*\n\n` +
-    `Cari aplikasi/game lalu geser hasilnya seperti katalog.\n\n` +
+    `✦ *NEXA • APK*\n\n` +
+    `Cari APK dari beberapa provider sekaligus.\n\n` +
     `Contoh:\n` +
-    `*${prefix}apkmody Stickman*\n\n` +
-    `Manual fallback:\n` +
-    `• ${prefix}apkmody detail 1\n` +
-    `• ${prefix}apkmody download 1\n` +
-    `• ${prefix}apkmody history\n` +
-    `• ${prefix}apkmody version 2\n` +
-    `• ${prefix}apkmody page 2\n\n` +
+    `*${prefix}apk CapCut*\n\n` +
+    `Alias:\n` +
+    `• ${prefix}mod\n` +
+    `• ${prefix}apkmody\n\n` +
+    `Manual:\n` +
+    `• ${prefix}apk detail 1\n` +
+    `• ${prefix}apk download 1\n` +
+    `• ${prefix}apk page 2\n\n` +
+    `Sumber: APKMODY • AN1 • LiteAPKs\n` +
     `🎟 Download: ${DOWNLOAD_COST} Limit\n` +
     `⭐ Premium: gratis\n` +
     `👑 Owner: gratis`
@@ -1499,9 +1192,11 @@ function helpText(
 
 export default {
   name:
-    'apkmody',
+    'apk',
 
   aliases: [
+    'mod',
+    'apkmody',
     'apkmod'
   ],
 
@@ -1509,10 +1204,10 @@ export default {
     'DOWNLOADER',
 
   description:
-    'Cari dan download APKMODY dengan carousel',
+    'Cari dan download APK dari APKMODY, AN1, dan LiteAPKs',
 
   usage:
-    '.apkmody <query>',
+    '.apk <query>',
 
   async run({
     sock,
@@ -1522,8 +1217,7 @@ export default {
     config
   }) {
     const prefix =
-      config?.prefix ||
-      '.'
+      config?.prefix || '.'
 
     const owner =
       userKey(
@@ -1539,15 +1233,12 @@ export default {
 
     const first =
       String(
-        args[0] ||
-        ''
-      )
-        .toLowerCase()
+        args?.[0] || ''
+      ).toLowerCase()
 
     try {
       if (
-        first ===
-        '__slice'
+        first === '__slice'
       ) {
         const session =
           getSession({
@@ -1568,18 +1259,13 @@ export default {
           config,
           session,
           slice:
-            Number(
-              args[2]
-            ) ||
-            0
+            Number(args[2]) || 0
         })
-
         return
       }
 
       if (
-        first ===
-        '__detail'
+        first === '__detail'
       ) {
         const session =
           getSession({
@@ -1591,20 +1277,6 @@ export default {
         if (!session) {
           throw new Error(
             'SESSION_EXPIRED'
-          )
-        }
-
-        const index =
-          Number(
-            args[2]
-          )
-
-        if (
-          !Number.isInteger(index) ||
-          !session.items[index]
-        ) {
-          throw new Error(
-            'SEARCH_ITEM_INVALID'
           )
         }
 
@@ -1613,15 +1285,14 @@ export default {
           jid,
           config,
           session,
-          index
+          index:
+            Number(args[2])
         })
-
         return
       }
 
       if (
-        first ===
-        '__history'
+        first === '__download'
       ) {
         const session =
           getSession({
@@ -1636,19 +1307,47 @@ export default {
           )
         }
 
-        await sendHistory({
+        await downloadFromSearch({
+          sock,
+          msg,
+          jid,
+          config,
+          session,
+          index:
+            Number(args[2])
+        })
+        return
+      }
+
+      if (
+        first === '__options'
+      ) {
+        const session =
+          getSession({
+            id:
+              args[1],
+            owner
+          })
+
+        if (!session) {
+          throw new Error(
+            'SESSION_EXPIRED'
+          )
+        }
+
+        await sendOptions({
           sock,
           jid,
           config,
-          session
+          session,
+          index:
+            Number(args[2])
         })
-
         return
       }
 
       if (
-        first ===
-        '__download'
+        first === '__optdl'
       ) {
         const session =
           getSession({
@@ -1663,83 +1362,24 @@ export default {
           )
         }
 
-        const index =
-          Number(
-            args[2]
-          )
-
-        if (
-          !Number.isInteger(index) ||
-          !session.items[index]
-        ) {
-          throw new Error(
-            'SEARCH_ITEM_INVALID'
-          )
-        }
-
-        await downloadPackage({
+        await downloadOption({
           sock,
           msg,
           jid,
           session,
-          searchIndex:
-            index
+          index:
+            Number(args[2]),
+          optionIndex:
+            Number(args[3])
         })
-
         return
       }
 
       if (
-        first ===
-        '__historydl'
-      ) {
-        const session =
-          getSession({
-            id:
-              args[1],
-            owner
-          })
-
-        if (!session) {
-          throw new Error(
-            'SESSION_EXPIRED'
-          )
-        }
-
-        const historyIndex =
-          Number(
-            args[2]
-          )
-
-        if (
-          !Number.isInteger(
-            historyIndex
-          )
-        ) {
-          throw new Error(
-            'HISTORY_ITEM_INVALID'
-          )
-        }
-
-        await downloadPackage({
-          sock,
-          msg,
-          jid,
-          session,
-          historyIndex
-        })
-
-        return
-      }
-
-      if (
-        first ===
-        'page'
+        first === 'page'
       ) {
         const previous =
-          getLatestSession(
-            owner
-          )
+          getLatestSession(owner)
 
         if (!previous) {
           throw new Error(
@@ -1750,10 +1390,7 @@ export default {
         const page =
           Math.max(
             1,
-            Number(
-              args[1]
-            ) ||
-            1
+            Number(args[1]) || 1
           )
 
         await searchApps({
@@ -1766,18 +1403,15 @@ export default {
             previous.query,
           page
         })
-
         return
       }
 
       if (
-        first ===
-        'detail'
+        first === 'detail' ||
+        first === 'download'
       ) {
         const session =
-          getLatestSession(
-            owner
-          )
+          getLatestSession(owner)
 
         if (!session) {
           throw new Error(
@@ -1788,10 +1422,7 @@ export default {
         const index =
           Math.max(
             1,
-            Number(
-              args[1]
-            ) ||
-            1
+            Number(args[1]) || 1
           ) - 1
 
         if (
@@ -1802,127 +1433,26 @@ export default {
           )
         }
 
-        await sendDetail({
-          sock,
-          jid,
-          config,
-          session,
-          index
-        })
-
-        return
-      }
-
-      if (
-        first ===
-        'download'
-      ) {
-        const session =
-          getLatestSession(
-            owner
-          )
-
-        if (!session) {
-          throw new Error(
-            'NO_PREVIOUS_SEARCH'
-          )
-        }
-
-        const index =
-          args[1]
-            ? (
-                Math.max(
-                  1,
-                  Number(
-                    args[1]
-                  ) ||
-                  1
-                ) - 1
-              )
-            : session
-                .selectedIndex
-
         if (
-          index ===
-            null ||
-          index ===
-            undefined ||
-          !session.items[index]
+          first === 'detail'
         ) {
-          throw new Error(
-            'SEARCH_ITEM_INVALID'
-          )
-        }
-
-        await downloadPackage({
-          sock,
-          msg,
-          jid,
-          session,
-          searchIndex:
+          await sendDetail({
+            sock,
+            jid,
+            config,
+            session,
             index
-        })
-
-        return
-      }
-
-      if (
-        first ===
-        'history'
-      ) {
-        const session =
-          getLatestSession(
-            owner
-          )
-
-        if (!session) {
-          throw new Error(
-            'NO_PREVIOUS_SEARCH'
-          )
+          })
+        } else {
+          await downloadFromSearch({
+            sock,
+            msg,
+            jid,
+            config,
+            session,
+            index
+          })
         }
-
-        await sendHistory({
-          sock,
-          jid,
-          config,
-          session
-        })
-
-        return
-      }
-
-      if (
-        first ===
-        'version'
-      ) {
-        const session =
-          getLatestSession(
-            owner
-          )
-
-        if (!session) {
-          throw new Error(
-            'NO_PREVIOUS_SEARCH'
-          )
-        }
-
-        const historyIndex =
-          Math.max(
-            1,
-            Number(
-              args[1]
-            ) ||
-            1
-          ) - 1
-
-        await downloadPackage({
-          sock,
-          msg,
-          jid,
-          session,
-          historyIndex
-        })
-
         return
       }
 
@@ -1935,16 +1465,12 @@ export default {
           jid,
           {
             text:
-              helpText(
-                prefix
-              )
+              helpText(prefix)
           },
           {
-            quoted:
-              msg
+            quoted: msg
           }
         )
-
         return
       }
 
@@ -1955,64 +1481,54 @@ export default {
         config,
         owner,
         query,
-        page:
-          1
+        page: 1
       })
-    } catch (
-      error
-    ) {
+    } catch (error) {
       console.error(
-        '[APKMODY]',
+        '[APK]',
         error
       )
 
       let text =
-        'Terjadi error saat memproses APKMODY.'
+        'Terjadi error saat memproses APK.'
 
       if (
         error?.message ===
-        'SESSION_EXPIRED'
+          'SESSION_EXPIRED'
       ) {
         text =
-          `Hasil ini sudah kedaluwarsa.\nCari ulang dengan *${prefix}apkmody <nama>*.`
+          `Hasil ini sudah kedaluwarsa. Cari ulang dengan *${prefix}apk <nama>*.`
       } else if (
         error?.message ===
-        'NO_PREVIOUS_SEARCH'
+          'NO_PREVIOUS_SEARCH'
       ) {
         text =
-          `Belum ada pencarian aktif.\nGunakan *${prefix}apkmody <nama>*.`
+          `Belum ada pencarian aktif. Gunakan *${prefix}apk <nama>*.`
       } else if (
         error?.message ===
-        'SEARCH_ITEM_INVALID' ||
-        error?.message ===
-        'HISTORY_ITEM_INVALID'
+          'SEARCH_ITEM_INVALID'
       ) {
         text =
-          'Pilihan tidak ditemukan. Coba pilih card lain.'
+          'Pilihan tidak ditemukan. Coba card lain.'
       } else if (
-        error?.message ===
-        'DETAIL_NOT_SELECTED'
+        /DOWNLOAD_FILE_NOT_FOUND|DIRECT_NOT_FOUND/i
+          .test(
+            error?.message || ''
+          )
       ) {
         text =
-          'Buka Detail aplikasi dulu sebelum melihat versi.'
-      } else if (
-        error?.message ===
-        'API_TIMEOUT'
-      ) {
-        text =
-          'Server APKMODY terlalu lama merespons. Coba lagi sebentar.'
+          'Provider belum memberikan file download yang valid untuk hasil ini.'
       }
 
       await sock.sendMessage(
         jid,
         {
           text:
-            `⚠️ *NEXA • APKMODY*\n\n` +
+            `⚠️ *NEXA • APK*\n\n` +
             text
         },
         {
-          quoted:
-            msg
+          quoted: msg
         }
       )
     }
