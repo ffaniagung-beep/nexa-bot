@@ -1,11 +1,50 @@
+import {
+  createWriteStream
+} from 'node:fs'
+
+import {
+  mkdtemp,
+  rm,
+  stat
+} from 'node:fs/promises'
+
+import {
+  tmpdir
+} from 'node:os'
+
+import {
+  join
+} from 'node:path'
+
+import http from 'node:http'
+import https from 'node:https'
+
+import {
+  pipeline
+} from 'node:stream/promises'
+
 const API =
-  'https://api.alwayscodex.eu.cc/api/downloader/mediafire'
+  'https://api.alwayscodex.eu.cc/api/downloader/mediafirev2'
 
 const API_TIMEOUT =
   45_000
 
+const CONNECT_TIMEOUT =
+  30_000
+
+const SOCKET_IDLE_TIMEOUT =
+  90_000
+
 const UPLOAD_TIMEOUT =
-  15 * 60 * 1000
+  20 * 60 * 1000
+
+const MAX_REDIRECTS =
+  8
+
+const UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+  'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+  'Chrome/124.0.0.0 Safari/537.36'
 
 function sleep(ms) {
   return new Promise(
@@ -115,20 +154,6 @@ function cleanFileName(
   return name
 }
 
-function formatSize(
-  value
-) {
-  const raw =
-    String(
-      value || '-'
-    ).trim()
-
-  return raw.replace(
-    /^([\d.,]+)\s*(KB|MB|GB|TB)$/i,
-    '$1 $2'
-  )
-}
-
 function safeMime(
   value
 ) {
@@ -145,6 +170,111 @@ function safeMime(
   }
 
   return 'application/octet-stream'
+}
+
+function parseApiSize(
+  value
+) {
+  const match =
+    String(
+      value || ''
+    )
+      .trim()
+      .match(
+        /^([\d.,]+)\s*(B|KB|MB|GB|TB)$/i
+      )
+
+  if (!match) {
+    return null
+  }
+
+  const number =
+    Number(
+      match[1]
+        .replace(
+          ',',
+          '.'
+        )
+    )
+
+  if (
+    !Number.isFinite(
+      number
+    ) ||
+    number < 0
+  ) {
+    return null
+  }
+
+  const power = {
+    B: 0,
+    KB: 1,
+    MB: 2,
+    GB: 3,
+    TB: 4
+  }[
+    match[2]
+      .toUpperCase()
+  ]
+
+  return (
+    number *
+    1024 ** power
+  )
+}
+
+function humanBytes(
+  value
+) {
+  const size =
+    Number(
+      value
+    )
+
+  if (
+    !Number.isFinite(
+      size
+    ) ||
+    size < 0
+  ) {
+    return '-'
+  }
+
+  if (
+    size < 1024
+  ) {
+    return `${size} B`
+  }
+
+  const units = [
+    'KB',
+    'MB',
+    'GB',
+    'TB'
+  ]
+
+  let current =
+    size / 1024
+
+  let unit =
+    units[0]
+
+  for (
+    let i = 1;
+    i < units.length &&
+    current >= 1024;
+    i++
+  ) {
+    current /=
+      1024
+
+    unit =
+      units[i]
+  }
+
+  return (
+    `${current.toFixed(2)} ${unit}`
+  )
 }
 
 async function requestMediaFire(
@@ -231,51 +361,43 @@ async function requestMediaFire(
         )
       }
 
-      const data =
-        json?.data
+      const result =
+        json?.result
 
       if (
-        !data ||
-        typeof data !==
+        !result ||
+        typeof result !==
           'object' ||
-        !data.link
+        !result.link
       ) {
         throw new Error(
           'MEDIAFIRE_LINK_NOT_FOUND'
         )
       }
 
-      return data
+      return result
     } catch (
       error
     ) {
       lastError =
         error
 
-      const code =
-        String(
+      const text =
+        `${
           error?.cause?.code ||
+          ''
+        } ${
           error?.code ||
           ''
-        )
-
-      const message =
-        String(
+        } ${
           error?.message ||
           ''
-        )
-
-      const retryable =
-        (
-          /timeout|fetch failed|connection|socket|econn|enotfound/i
-            .test(
-              `${code} ${message}`
-            )
-        )
+        }`
 
       if (
         attempt < 2 &&
-        retryable
+        /timeout|fetch failed|connection|socket|econn|enotfound/i
+          .test(text)
       ) {
         await sleep(
           1500
@@ -300,54 +422,376 @@ async function requestMediaFire(
   )
 }
 
+function openDownload(
+  input,
+  redirectCount = 0
+) {
+  return new Promise(
+    (
+      resolve,
+      reject
+    ) => {
+      let url
+
+      try {
+        url =
+          new URL(
+            input
+          )
+      } catch {
+        reject(
+          new Error(
+            'MEDIAFIRE_DIRECT_URL_INVALID'
+          )
+        )
+
+        return
+      }
+
+      if (
+        ![
+          'http:',
+          'https:'
+        ].includes(
+          url.protocol
+        )
+      ) {
+        reject(
+          new Error(
+            'MEDIAFIRE_DIRECT_PROTOCOL_INVALID'
+          )
+        )
+
+        return
+      }
+
+      const client =
+        url.protocol ===
+          'https:'
+          ? https
+          : http
+
+      let settled =
+        false
+
+      const request =
+        client.get(
+          url,
+          {
+            headers: {
+              'User-Agent':
+                UA,
+              Accept:
+                '*/*',
+              'Accept-Language':
+                'id-ID,id;q=0.9,en-US;q=0.8',
+              Referer:
+                'https://www.mediafire.com/'
+            }
+          },
+          response => {
+            clearTimeout(
+              connectTimer
+            )
+
+            const status =
+              Number(
+                response.statusCode ||
+                0
+              )
+
+            const location =
+              response.headers
+                .location
+
+            if (
+              status >= 300 &&
+              status < 400 &&
+              location
+            ) {
+              response.resume()
+
+              if (
+                redirectCount >=
+                MAX_REDIRECTS
+              ) {
+                settled =
+                  true
+
+                reject(
+                  new Error(
+                    'MEDIAFIRE_TOO_MANY_REDIRECTS'
+                  )
+                )
+
+                return
+              }
+
+              const next =
+                new URL(
+                  location,
+                  url
+                ).toString()
+
+              settled =
+                true
+
+              resolve(
+                openDownload(
+                  next,
+                  redirectCount +
+                    1
+                )
+              )
+
+              return
+            }
+
+            if (
+              status < 200 ||
+              status >= 300
+            ) {
+              response.resume()
+
+              settled =
+                true
+
+              reject(
+                new Error(
+                  `MEDIAFIRE_CDN_HTTP_${status}`
+                )
+              )
+
+              return
+            }
+
+            settled =
+              true
+
+            resolve({
+              response,
+              finalUrl:
+                url.toString()
+            })
+          }
+        )
+
+      const connectTimer =
+        setTimeout(
+          () => {
+            if (
+              !settled
+            ) {
+              request.destroy(
+                new Error(
+                  'MEDIAFIRE_CDN_CONNECT_TIMEOUT'
+                )
+              )
+            }
+          },
+          CONNECT_TIMEOUT
+        )
+
+      request.setTimeout(
+        SOCKET_IDLE_TIMEOUT,
+        () => {
+          request.destroy(
+            new Error(
+              'MEDIAFIRE_CDN_IDLE_TIMEOUT'
+            )
+          )
+        }
+      )
+
+      request.once(
+        'error',
+        error => {
+          clearTimeout(
+            connectTimer
+          )
+
+          if (
+            !settled
+          ) {
+            settled =
+              true
+
+            reject(
+              error
+            )
+          }
+        }
+      )
+    }
+  )
+}
+
+async function downloadToTemp({
+  directUrl,
+  fileName,
+  expectedBytes
+}) {
+  const dir =
+    await mkdtemp(
+      join(
+        tmpdir(),
+        'nexa-mediafire-'
+      )
+    )
+
+  const filePath =
+    join(
+      dir,
+      fileName
+    )
+
+  const cleanup =
+    async () => {
+      await rm(
+        dir,
+        {
+          recursive: true,
+          force: true
+        }
+      )
+    }
+
+  try {
+    const {
+      response
+    } =
+      await openDownload(
+        directUrl
+      )
+
+    await pipeline(
+      response,
+      createWriteStream(
+        filePath,
+        {
+          flags:
+            'wx'
+        }
+      )
+    )
+
+    const info =
+      await stat(
+        filePath
+      )
+
+    const actualBytes =
+      Number(
+        info.size ||
+        0
+      )
+
+    if (
+      !actualBytes
+    ) {
+      throw new Error(
+        'MEDIAFIRE_EMPTY_FILE'
+      )
+    }
+
+    if (
+      expectedBytes &&
+      expectedBytes >=
+        1024 * 1024
+    ) {
+      const ratio =
+        actualBytes /
+        expectedBytes
+
+      if (
+        ratio < 0.75
+      ) {
+        throw Object.assign(
+          new Error(
+            'MEDIAFIRE_SIZE_MISMATCH'
+          ),
+          {
+            expectedBytes,
+            actualBytes
+          }
+        )
+      }
+    }
+
+    return {
+      dir,
+      filePath,
+      actualBytes,
+      cleanup
+    }
+  } catch (
+    error
+  ) {
+    await cleanup()
+    throw error
+  }
+}
+
 function errorText(
   error
 ) {
-  const code =
-    String(
+  const text =
+    `${
       error?.cause?.code ||
+      ''
+    } ${
       error?.code ||
+      ''
+    } ${
       error?.message ||
       ''
-    )
+    }`
 
   if (
-    /timeout/i.test(
-      code
-    )
+    /SIZE_MISMATCH/i
+      .test(text)
   ) {
     return (
-      'API MediaFire sedang lambat atau timeout.\n' +
-      'Coba lagi beberapa saat.'
+      'Direct link MediaFire mengembalikan data yang tidak sesuai ukuran file.\n' +
+      `API: ${humanBytes(error.expectedBytes)} • diterima: ${humanBytes(error.actualBytes)}\n` +
+      'File tidak dikirim supaya NEXA tidak mengirim file HTML/redirect palsu.'
+    )
+  }
+
+  if (
+    /CONNECT_TIMEOUT|IDLE_TIMEOUT|timeout/i
+      .test(text)
+  ) {
+    return (
+      'Koneksi ke server MediaFire timeout.\n' +
+      'Coba lagi saat jalur MediaFire/CDN sudah stabil.'
+    )
+  }
+
+  if (
+    /CDN_HTTP_/i
+      .test(text)
+  ) {
+    return (
+      'Server download MediaFire menolak direct download sementara.'
     )
   }
 
   if (
     /fetch failed|connection|socket|econn|enotfound/i
-      .test(code)
+      .test(text)
   ) {
     return (
-      'Tidak bisa terhubung ke layanan MediaFire saat ini.\n' +
-      'Coba lagi beberapa saat.'
+      'Tidak bisa terhubung ke layanan MediaFire saat ini.'
     )
   }
 
   if (
-    /LINK_NOT_FOUND/i.test(
-      code
-    )
+    /LINK_NOT_FOUND/i
+      .test(text)
   ) {
     return (
-      'Link download tidak ditemukan dari MediaFire.'
-    )
-  }
-
-  if (
-    /too large|413|file size|upload/i
-      .test(code)
-  ) {
-    return (
-      'File berhasil ditemukan, tetapi WhatsApp gagal menerima ukuran file tersebut.'
+      'Direct link download tidak ditemukan dari MediaFire.'
     )
   }
 
@@ -407,8 +851,8 @@ export default {
           text:
             '✦ *NEXA • MEDIAFIRE*\n\n' +
             'Kirim link MediaFire yang valid.\n\n' +
-            `Contoh:\n` +
-            `${config?.prefix || '.'}mediafire https://www.mediafire.com/file/xxxxx/file.zip/file`
+            'Contoh:\n' +
+            `${config?.prefix || '.'}mediafire https://www.mediafire.com/file/xxxxx`
         },
         {
           quoted:
@@ -419,13 +863,16 @@ export default {
       return
     }
 
+    let downloaded =
+      null
+
     try {
       await sock.sendMessage(
         jid,
         {
           text:
             '✦ *NEXA • MEDIAFIRE*\n\n' +
-            '⏳ Mengambil informasi file dan menyiapkan download...'
+            '⏳ Mengambil informasi file...'
         },
         {
           quoted:
@@ -449,17 +896,44 @@ export default {
           data.mimetype
         )
 
-      const filesize =
-        formatSize(
+      const expectedBytes =
+        parseApiSize(
           data.filesize
         )
 
       await sock.sendMessage(
         jid,
         {
+          text:
+            '✦ *NEXA • MEDIAFIRE*\n\n' +
+            `📁 *File:* ${fileName}\n` +
+            `📦 *Ukuran:* ${String(data.filesize || '-')}\n` +
+            `🧩 *Tipe:* ${mimetype}\n\n` +
+            '⬇️ Mengunduh file asli dari MediaFire...'
+        },
+        {
+          quoted:
+            msg
+        }
+      )
+
+      downloaded =
+        await downloadToTemp({
+          directUrl:
+            data.link,
+
+          fileName,
+
+          expectedBytes
+        })
+
+      await sock.sendMessage(
+        jid,
+        {
           document: {
             url:
-              data.link
+              downloaded
+                .filePath
           },
 
           fileName,
@@ -469,9 +943,9 @@ export default {
           caption:
             '✦ *NEXA • MEDIAFIRE*\n\n' +
             `📁 *File:* ${fileName}\n` +
-            `📦 *Ukuran:* ${filesize}\n` +
+            `📦 *Ukuran:* ${humanBytes(downloaded.actualBytes)}\n` +
             `🧩 *Tipe:* ${mimetype}\n\n` +
-            '✅ File berhasil disiapkan.'
+            '✅ File berhasil diunduh dan dikirim.'
         },
         {
           quoted:
@@ -485,7 +959,7 @@ export default {
       error
     ) {
       console.error(
-        '[MEDIAFIRE]',
+        '[MEDIAFIRE V2]',
         error
       )
 
@@ -503,6 +977,18 @@ export default {
             msg
         }
       )
+    } finally {
+      try {
+        await downloaded
+          ?.cleanup?.()
+      } catch (
+        cleanupError
+      ) {
+        console.error(
+          '[MEDIAFIRE V2] cleanup:',
+          cleanupError
+        )
+      }
     }
   }
 }
