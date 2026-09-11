@@ -744,6 +744,46 @@ async function checkPermission({
 }
 
 // =====================================
+// COMMAND SAFETY PACING V1
+// OWNER BYPASS
+// =====================================
+
+const COMMAND_DELAY_MIN_MS =
+  900
+
+const COMMAND_DELAY_MAX_MS =
+  1600
+
+async function applyCommandSafetyDelay(
+  isOwner
+) {
+  // Owner selalu instant.
+  if (isOwner) {
+    return 0
+  }
+
+  const span =
+    Math.max(
+      0,
+      COMMAND_DELAY_MAX_MS -
+      COMMAND_DELAY_MIN_MS
+    )
+
+  const delay =
+    COMMAND_DELAY_MIN_MS +
+    Math.floor(
+      Math.random() *
+      (span + 1)
+    )
+
+  await sleep(
+    delay
+  )
+
+  return delay
+}
+
+// =====================================
 // ANTI-SPAM
 // =====================================
 
@@ -3074,7 +3114,11 @@ async function startBotInner() {
               }
             }
             
-            await command.run({
+            await applyCommandSafetyDelay(
+            isOwner
+          )
+
+          await command.run({
               sock,
               msg,
               jid,
