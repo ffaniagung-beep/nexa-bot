@@ -32,6 +32,10 @@ function rewardText(
     return `🪙 +${num(amount)} Coin`
   }
 
+  if (type === 'exp') {
+    return `✨ +${num(amount)} EXP`
+  }
+
   if (type === 'premium') {
     return `👑 Premium +${amount} Hari`
   }

@@ -587,7 +587,7 @@ function menuLegend(commands) {
 }
 function buildHeader({botName, name, user, premium, owner, total, categoryCount}) {
   const status=owner ? '👑 Owner' : premium ? '⭐ Premium' : '👤 Member'
-  const limit=owner || premium ? '∞' : formatNumber(user?.limit)
+  const limit=owner ? '∞' : formatNumber(user?.limit)
   return menuTitle(botName,'COMMAND CENTER') +
     `\n\nHalo, *${menuText(name, 45)}* 👋\nMau ngapain hari ini?\n\n` +
     `╭─ *PROFIL SINGKAT*\n` +

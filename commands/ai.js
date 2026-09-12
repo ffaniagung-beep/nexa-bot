@@ -4,7 +4,8 @@ import {
 
 import {
   runNexaAi,
-  NEXA_AI_COST
+  NEXA_AI_COST,
+  NEXA_AI_PREMIUM_COST
 } from '../lib/ai/nexa.js'
 
 export default {
@@ -49,8 +50,9 @@ export default {
             `│ *.ai kenapa langit biru?*\n` +
             `│ *.ask bantu jelasin ini*\n` +
             `│\n` +
-            `│ 🎟️ Cost: ${NEXA_AI_COST} Limit\n` +
-            `│ 👑 Premium/Owner: Unlimited\n` +
+            `│ 🎟️ Free: ${NEXA_AI_COST} Limit\n` +
+            `│ ⭐ Premium: ${NEXA_AI_PREMIUM_COST} Limit\n` +
+            `│ 👑 Owner: Gratis\n` +
             `│\n` +
             `╰━━━━━━━━━━━━━━━━━━╯`
         },

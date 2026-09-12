@@ -27,6 +27,23 @@ import {
   pipeline
 } from 'node:stream/promises'
 
+import {
+  beginBilledJob,
+  adjustBilledJob,
+  refundBilledJob
+} from '../lib/jobBilling.js'
+
+import {
+  getDownloadLimitCost,
+  ensureDiskHeadroom,
+  resourceBusyText,
+  formatResourceBytes
+} from '../lib/resourceGate.js'
+
+import {
+  sendLimitEmpty
+} from '../lib/limitGate.js'
+
 const API =
   'https://api.alwayscodex.eu.cc/api/downloader/mediafirev2'
 
@@ -970,6 +987,27 @@ function errorText(error) {
     }`
 
   if (
+    /SERVER_DISK_LOW/i
+      .test(text)
+  ) {
+    return (
+      `Storage server sedang kurang aman untuk job ini.\n` +
+      `Tersedia: *${formatResourceBytes(error?.availableBytes)}* • ` +
+      `Dibutuhkan aman: *${formatResourceBytes(error?.neededBytes)}*.`
+    )
+  }
+
+  if (
+    /MEDIAFIRE_LIMIT_CHANGED/i
+      .test(text)
+  ) {
+    return (
+      'Ukuran aktual file masuk tier biaya yang lebih tinggi, ' +
+      'tapi Limit kamu tidak cukup. File tidak dikirim.'
+    )
+  }
+
+  if (
     /FILE_TOO_LARGE/i
       .test(text)
   ) {
@@ -1071,7 +1109,9 @@ export default {
 
     if (
       !url ||
-      !isMediaFireUrl(url)
+      !isMediaFireUrl(
+        url
+      )
     ) {
       await sock.sendMessage(
         jid,
@@ -1080,16 +1120,23 @@ export default {
             '✦ *NEXA • MEDIAFIRE*\n\n' +
             'Kirim link MediaFire yang valid.\n\n' +
             'Contoh:\n' +
-            `${config?.prefix || '.'}mediafire https://www.mediafire.com/file/xxxxx`
+            `${config?.prefix || '.'}mediafire https://www.mediafire.com/file/xxxxx\n\n` +
+            '🎟 Biaya: 3–15 Limit sesuai ukuran\n' +
+            '⭐ Premium: 2–8 Limit • 👑 Owner: gratis'
         },
         {
           quoted: msg
         }
       )
+
       return
     }
 
-    let downloaded = null
+    let downloaded =
+      null
+
+    let job =
+      null
 
     try {
       await sock.sendMessage(
@@ -1105,7 +1152,9 @@ export default {
       )
 
       const data =
-        await requestMediaFire(url)
+        await requestMediaFire(
+          url
+        )
 
       const fileName =
         cleanFileName(
@@ -1133,6 +1182,75 @@ export default {
         )
       }
 
+      const normalCost =
+        getDownloadLimitCost(
+          expectedBytes,
+          {
+            premium: false
+          }
+        )
+
+      const premiumCost =
+        getDownloadLimitCost(
+          expectedBytes,
+          {
+            premium: true
+          }
+        )
+
+      job =
+        beginBilledJob({
+          msg,
+          jid,
+          kind:
+            'download',
+          normalCost,
+          premiumCost,
+          globalLimit: 2,
+          perOwnerLimit: 1,
+          ttlMs:
+            30 *
+            60 *
+            1000
+        })
+
+      if (!job.ok) {
+        if (
+          job.reason ===
+          'LIMIT'
+        ) {
+          await sendLimitEmpty({
+            sock,
+            msg,
+            jid
+          })
+
+          return
+        }
+
+        await sock.sendMessage(
+          jid,
+          {
+            text:
+              `✦ *NEXA • MEDIAFIRE*\n\n` +
+              resourceBusyText(
+                job.busy,
+                'download besar'
+              )
+          },
+          {
+            quoted: msg
+          }
+        )
+
+        return
+      }
+
+      ensureDiskHeadroom(
+        expectedBytes ||
+        MAX_MEDIAFIRE_BYTES
+      )
+
       await sock.sendMessage(
         jid,
         {
@@ -1140,7 +1258,17 @@ export default {
             '✦ *NEXA • MEDIAFIRE*\n\n' +
             `📁 *File:* ${fileName}\n` +
             `📦 *Ukuran:* ${String(data.filesize || '-')}\n` +
-            `🧩 *Tipe:* ${mimetype}\n\n` +
+            `🧩 *Tipe:* ${mimetype}\n` +
+            `🎟 *Biaya awal:* ${
+              job.cost
+                ? `${job.cost} Limit${
+                    job.access?.premium
+                      ? ' • Premium ⭐'
+                      : ''
+                  }`
+                : 'Gratis • Owner 👑'
+            }\n\n` +
+            'Biaya final menyesuaikan ukuran aktual.\n' +
             '⬇️ Mengunduh file asli dari MediaFire...'
         },
         {
@@ -1158,6 +1286,34 @@ export default {
           expectedBytes
         })
 
+      const finalCost =
+        job.access?.owner
+          ? 0
+          : getDownloadLimitCost(
+              downloaded.actualBytes,
+              {
+                premium:
+                  Boolean(
+                    job.access
+                      ?.premium
+                  )
+              }
+            )
+
+      const adjusted =
+        adjustBilledJob(
+          job,
+          finalCost
+        )
+
+      if (
+        !adjusted.success
+      ) {
+        throw new Error(
+          'MEDIAFIRE_LIMIT_CHANGED'
+        )
+      }
+
       await sock.sendMessage(
         jid,
         {
@@ -1173,7 +1329,12 @@ export default {
             '✦ *NEXA • MEDIAFIRE*\n\n' +
             `📁 *File:* ${fileName}\n` +
             `📦 *Ukuran:* ${humanBytes(downloaded.actualBytes)}\n` +
-            `🧩 *Tipe:* ${mimetype}\n\n` +
+            `🧩 *Tipe:* ${mimetype}\n` +
+            `🎟 *Biaya:* ${
+              job.cost
+                ? `${job.cost} Limit`
+                : 'Gratis • Owner 👑'
+            }\n\n` +
             '✅ File berhasil diunduh dan dikirim.'
         },
         {
@@ -1183,6 +1344,16 @@ export default {
         }
       )
     } catch (error) {
+      const refunded =
+        job?.ok
+          ? refundBilledJob(
+              job,
+              'mediafire_failed'
+            )
+          : {
+              refunded: false
+            }
+
       console.error(
         '[MEDIAFIRE V3]',
         error
@@ -1193,7 +1364,14 @@ export default {
         {
           text:
             '❌ *MediaFire gagal*\n\n' +
-            errorText(error)
+            errorText(
+              error
+            ) +
+            (
+              refunded.refunded
+                ? `\n\n🎟 ${refunded.cost} Limit dikembalikan.`
+                : ''
+            )
         },
         {
           quoted: msg
@@ -1203,12 +1381,19 @@ export default {
       try {
         await downloaded
           ?.cleanup?.()
-      } catch (cleanupError) {
+      } catch (
+        cleanupError
+      ) {
         console.error(
           '[MEDIAFIRE V3] cleanup:',
           cleanupError
         )
       }
+
+      try {
+        job
+          ?.release?.()
+      } catch {}
     }
   }
 }

@@ -15,6 +15,19 @@ import {
   downloadMedia
 } from '../lib/maker-media.js'
 
+import {
+  beginBilledJob,
+  refundBilledJob
+} from '../lib/jobBilling.js'
+
+import {
+  resourceBusyText
+} from '../lib/resourceGate.js'
+
+import {
+  sendLimitEmpty
+} from '../lib/limitGate.js'
+
 const REMOVEBG_API =
   'https://v2.api-varhad.my.id/tools/removebg'
 
@@ -670,31 +683,215 @@ async function sendRemoveBgResult({
 // COMMAND
 // =====================================
 
+const REMOVEBG_COST = 3
+const REMOVEBG_PREMIUM_COST = 2
+
 export default {
-  name: 'removebg', aliases: ['removebackground', 'nobg'], category: 'MAKER',
-  description: 'Menghapus background foto', usage: '.removebg',
-  async run({ sock, msg, jid, config }) {
-    const source = getMediaSource(msg, sock)
-    if (source?.type !== 'image') return sock.sendMessage(jid, {
-      text: `🎨 Reply foto dengan ${config?.prefix || '.'}removebg.`
-    }, { quoted: msg })
-    const release = acquireMaker()
-    if (!release) return sock.sendMessage(jid, { text: '⏳ Dua proses gambar sedang berjalan. Coba lagi setelah selesai.' }, { quoted: msg })
-    react(sock, jid, msg, '⏳')
+  name: 'removebg',
+  aliases: [
+    'removebackground',
+    'nobg'
+  ],
+  category: 'MAKER',
+  description:
+    'Menghapus background foto',
+  usage: '.removebg',
+
+  async run({
+    sock,
+    msg,
+    jid,
+    config
+  }) {
+    const source =
+      getMediaSource(
+        msg,
+        sock
+      )
+
+    if (
+      source?.type !==
+      'image'
+    ) {
+      return sock.sendMessage(
+        jid,
+        {
+          text:
+            `🎨 Reply foto dengan ${config?.prefix || '.'}removebg.\n` +
+            `🎟 Free: ${REMOVEBG_COST} Limit • Premium: ${REMOVEBG_PREMIUM_COST} • Owner: gratis.`
+        },
+        {
+          quoted: msg
+        }
+      )
+    }
+
+    const localRelease =
+      acquireMaker()
+
+    if (!localRelease) {
+      return sock.sendMessage(
+        jid,
+        {
+          text:
+            '⏳ Dua proses gambar sedang berjalan. Coba lagi setelah selesai.'
+        },
+        {
+          quoted: msg
+        }
+      )
+    }
+
+    const job =
+      beginBilledJob({
+        msg,
+        jid,
+        kind: 'maker',
+        normalCost:
+          REMOVEBG_COST,
+        premiumCost:
+          REMOVEBG_PREMIUM_COST,
+        globalLimit: 2,
+        perOwnerLimit: 1,
+        ttlMs:
+          5 * 60 * 1000
+      })
+
+    if (!job.ok) {
+      localRelease()
+
+      if (
+        job.reason ===
+        'LIMIT'
+      ) {
+        return sendLimitEmpty({
+          sock,
+          msg,
+          jid
+        })
+      }
+
+      return sock.sendMessage(
+        jid,
+        {
+          text:
+            resourceBusyText(
+              job.busy,
+              'proses maker'
+            )
+        },
+        {
+          quoted: msg
+        }
+      )
+    }
+
+    let delivered = false
+
+    react(
+      sock,
+      jid,
+      msg,
+      '⏳'
+    )
+
     try {
-      const buffer = await stage('removebg/download', () => downloadMedia(source, sock))
-      const imageUrl = await stage('removebg/upload', () => uploadImage(buffer))
-      const result = await stage('removebg/api', () => removeBackground(imageUrl))
-      if (!result.url && !result.buffer?.length) throw new Error('REMOVEBG_EMPTY_RESULT')
-      await stage('removebg/send', () => sendRemoveBgResult({
-        sock, jid, msg, resultUrl: result.url, resultBuffer: result.buffer
-      }))
-      react(sock, jid, msg, '✅')
+      const buffer =
+        await stage(
+          'removebg/download',
+          () =>
+            downloadMedia(
+              source,
+              sock
+            )
+        )
+
+      const imageUrl =
+        await stage(
+          'removebg/upload',
+          () =>
+            uploadImage(
+              buffer
+            )
+        )
+
+      const result =
+        await stage(
+          'removebg/api',
+          () =>
+            removeBackground(
+              imageUrl
+            )
+        )
+
+      if (
+        !result.url &&
+        !result.buffer?.length
+      ) {
+        throw new Error(
+          'REMOVEBG_EMPTY_RESULT'
+        )
+      }
+
+      await stage(
+        'removebg/send',
+        () =>
+          sendRemoveBgResult({
+            sock,
+            jid,
+            msg,
+            resultUrl:
+              result.url,
+            resultBuffer:
+              result.buffer
+          })
+      )
+
+      delivered = true
+
+      react(
+        sock,
+        jid,
+        msg,
+        '✅'
+      )
     } catch (err) {
-      react(sock, jid, msg, '❌')
-      await sock.sendMessage(jid, {
-        text: `⚠️ RemoveBG gagal (${err.makerStage || 'removebg'}).\n${failureText(err)}`
-      }, { quoted: msg })
-    } finally { release() }
+      const refund =
+        !delivered
+          ? refundBilledJob(
+              job,
+              'removebg_failed'
+            )
+          : {
+              refunded: false
+            }
+
+      react(
+        sock,
+        jid,
+        msg,
+        '❌'
+      )
+
+      await sock.sendMessage(
+        jid,
+        {
+          text:
+            `⚠️ RemoveBG gagal (${err.makerStage || 'removebg'}).\n` +
+            `${failureText(err)}` +
+            (
+              refund.refunded
+                ? `\n🎟 ${refund.cost} Limit dikembalikan.`
+                : ''
+            )
+        },
+        {
+          quoted: msg
+        }
+      )
+    } finally {
+      job.release()
+      localRelease()
+    }
   }
 }

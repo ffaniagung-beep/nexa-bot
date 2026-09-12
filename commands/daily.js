@@ -1,6 +1,7 @@
-// NEXA DAILY ATOMIC V1
+// NEXA DAILY ECONOMY V2
 import {
-  claimDailyRewards
+  claimDailyRewards,
+  isPremium
 } from '../lib/userdb.js'
 
 import {
@@ -93,11 +94,27 @@ export default {
         jid
       )
 
+    const premium =
+      !isOwner &&
+      isPremium(
+        userJid
+      )
+
     const LIMIT_REWARD =
-      10
+      (
+        isOwner ||
+        premium
+      )
+        ? 8
+        : 5
 
     const COIN_REWARD =
-      50
+      (
+        isOwner ||
+        premium
+      )
+        ? 40
+        : 25
 
     const claim =
       claimDailyRewards(
@@ -138,11 +155,19 @@ export default {
     const updated =
       claim.user
 
+    const tier =
+      isOwner
+        ? 'Owner 👑'
+        : premium
+          ? 'Premium ⭐'
+          : 'Free'
+
     await sock.sendMessage(
       jid,
       {
         text:
           `☀️ *DAILY CLAIMED*\n\n` +
+          `⭐ Tier: *${tier}*\n` +
           `🎟 +${LIMIT_REWARD} Limit\n` +
           `🪙 +${COIN_REWARD} Coin\n\n` +
           `🎟 Limit: *${isOwner ? '∞' : updated.limit}*\n` +

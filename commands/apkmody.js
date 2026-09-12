@@ -5,14 +5,21 @@ import {
 } from '@rexxhayanasi/elaina-baileys'
 
 import {
-  canUseLimit,
-  chargeLimit,
   sendLimitEmpty
 } from '../lib/limitGate.js'
 
 import {
-  addLimit
-} from '../lib/userdb.js'
+  beginBilledJob,
+  adjustBilledJob,
+  refundBilledJob
+} from '../lib/jobBilling.js'
+
+import {
+  getDownloadLimitCost,
+  ensureDiskHeadroom,
+  resourceBusyText,
+  formatResourceBytes
+} from '../lib/resourceGate.js'
 
 import {
   getProfileJid
@@ -43,9 +50,6 @@ const SESSION_TTL =
 
 const CARDS_PER_PAGE =
   8
-
-const DOWNLOAD_COST =
-  3
 
 const sessions =
   new Map()
@@ -772,17 +776,17 @@ async function sendOptions({
 }
 
 function feeText(
-  access
+  job
 ) {
-  if (access?.owner) {
+  if (job?.access?.owner) {
     return 'Gratis • Owner 👑'
   }
 
-  if (access?.premium) {
-    return 'Gratis • Premium ⭐'
+  if (job?.access?.premium) {
+    return `${job.cost} Limit • Premium ⭐`
   }
 
-  return `${DOWNLOAD_COST} Limit`
+  return `${job?.cost || 0} Limit`
 }
 
 function mimeFor(
@@ -825,7 +829,9 @@ async function downloadOption({
     session.owner
 
   if (
-    downloadLocks.has(lockKey)
+    downloadLocks.has(
+      lockKey
+    )
   ) {
     await sock.sendMessage(
       jid,
@@ -842,11 +848,15 @@ async function downloadOption({
     return
   }
 
-  downloadLocks.add(lockKey)
+  downloadLocks.add(
+    lockKey
+  )
 
-  let downloaded = null
-  let charged = false
-  let access = null
+  let downloaded =
+    null
+
+  let job =
+    null
 
   try {
     const detail =
@@ -882,22 +892,76 @@ async function downloadOption({
       )
     }
 
-    access =
-      canUseLimit({
+    const normalCost =
+      getDownloadLimitCost(
+        declaredBytes,
+        {
+          premium: false
+        }
+      )
+
+    const premiumCost =
+      getDownloadLimitCost(
+        declaredBytes,
+        {
+          premium: true
+        }
+      )
+
+    job =
+      beginBilledJob({
         msg,
         jid,
-        cost:
-          DOWNLOAD_COST
+        kind:
+          'download',
+        normalCost,
+        premiumCost,
+        globalLimit: 2,
+        perOwnerLimit: 1,
+        ttlMs:
+          30 *
+          60 *
+          1000
       })
 
-    if (!access.allowed) {
-      await sendLimitEmpty({
-        sock,
-        msg,
-        jid
-      })
+    if (!job.ok) {
+      if (
+        job.reason ===
+        'LIMIT'
+      ) {
+        await sendLimitEmpty({
+          sock,
+          msg,
+          jid
+        })
+
+        return
+      }
+
+      await sock.sendMessage(
+        jid,
+        {
+          text:
+            `✦ *NEXA • APK*\n\n` +
+            resourceBusyText(
+              job.busy,
+              'download besar'
+            )
+        },
+        msg
+          ? {
+              quoted: msg
+            }
+          : undefined
+      )
+
       return
     }
+
+    ensureDiskHeadroom(
+      declaredBytes ||
+      MAX_APK_DOWNLOAD_BYTES
+    )
 
     await sock.sendMessage(
       jid,
@@ -909,7 +973,8 @@ async function downloadOption({
           `🏷 ${clean(detail.version || 'Latest', 80)}\n` +
           `📦 ${clean(option.size || detail.size || '-', 60)}\n` +
           `${providerIcon(detail.providerLabel)} ${clean(detail.providerLabel, 50)}\n` +
-          `🎟 Biaya: ${feeText(access)}\n\n` +
+          `🎟 Biaya awal: ${feeText(job)}\n\n` +
+          `Biaya final menyesuaikan ukuran file aktual.\n` +
           `NEXA sedang mengambil file dari provider.`
       },
       msg
@@ -928,27 +993,31 @@ async function downloadOption({
         resolved
       )
 
-    const payment =
-      chargeLimit({
-        msg,
-        jid,
-        cost:
-          DOWNLOAD_COST
-      })
+    const finalCost =
+      job.access?.owner
+        ? 0
+        : getDownloadLimitCost(
+            downloaded.actualBytes,
+            {
+              premium:
+                Boolean(
+                  job.access
+                    ?.premium
+                )
+            }
+          )
 
-    if (!payment.success) {
-      await sendLimitEmpty({
-        sock,
-        msg,
-        jid
-      })
-      return
-    }
-
-    charged =
-      Boolean(
-        payment.charged
+    const adjusted =
+      adjustBilledJob(
+        job,
+        finalCost
       )
+
+    if (!adjusted.success) {
+      throw new Error(
+        'APK_LIMIT_CHANGED'
+      )
+    }
 
     await sock.sendMessage(
       jid,
@@ -960,7 +1029,9 @@ async function downloadOption({
         fileName:
           downloaded.filename,
         mimetype:
-          mimeFor(resolved),
+          mimeFor(
+            resolved
+          ),
         caption:
           `✦ *NEXA • APK*\n\n` +
           `✓ *Paket berhasil disiapkan*\n\n` +
@@ -969,7 +1040,11 @@ async function downloadOption({
           `⚡ ${clean(detail.mod || 'Original / Free', 180)}\n` +
           `📦 ${formatBytes(downloaded.actualBytes)}\n` +
           `${providerIcon(detail.providerLabel)} ${clean(detail.providerLabel, 50)}\n` +
-          `🎟 ${access.unlimited ? 'Gratis' : `-${DOWNLOAD_COST} Limit`}\n\n` +
+          `🎟 ${
+            job.cost
+              ? `-${job.cost} Limit`
+              : 'Gratis • Owner 👑'
+          }\n\n` +
           `⚠️ APK berasal dari pihak ketiga. Periksa sumber dan izin aplikasi sebelum memasang.`
       },
       {
@@ -977,32 +1052,28 @@ async function downloadOption({
           ? { quoted: msg }
           : {}),
         mediaUploadTimeoutMs:
-          20 * 60 * 1000
+          20 *
+          60 *
+          1000
       }
     )
 
     console.log(
       `✅ APK download [${detail.providerLabel}]:`,
       detail.title,
-      downloaded.filename
+      downloaded.filename,
+      `cost=${job.cost}`
     )
   } catch (error) {
-    if (
-      charged &&
-      access?.userJid
-    ) {
-      try {
-        addLimit(
-          access.userJid,
-          DOWNLOAD_COST
-        )
-      } catch (refundError) {
-        console.error(
-          '[APK] Refund gagal:',
-          refundError
-        )
-      }
-    }
+    const refunded =
+      job?.ok
+        ? refundBilledJob(
+            job,
+            'apk_failed'
+          )
+        : {
+            refunded: false
+          }
 
     console.error(
       '[APK] Download:',
@@ -1010,8 +1081,8 @@ async function downloadOption({
     )
 
     const refund =
-      charged
-        ? `\n🎟 ${DOWNLOAD_COST} Limit dikembalikan.`
+      refunded.refunded
+        ? `\n🎟 ${refunded.cost} Limit dikembalikan.`
         : ''
 
     let reason =
@@ -1019,7 +1090,8 @@ async function downloadOption({
 
     const code =
       String(
-        error?.message || ''
+        error?.message ||
+        ''
       )
 
     if (
@@ -1028,6 +1100,29 @@ async function downloadOption({
     ) {
       reason =
         'Ukuran file melewati batas aman *1 GB*. NEXA membatalkan download demi keamanan server.'
+    } else if (
+      /SERVER_DISK_LOW/i
+        .test(code)
+    ) {
+      const available =
+        formatResourceBytes(
+          error?.availableBytes
+        )
+
+      const needed =
+        formatResourceBytes(
+          error?.neededBytes
+        )
+
+      reason =
+        `Storage server sedang kurang aman untuk job ini.\n` +
+        `Tersedia: *${available}* • Dibutuhkan aman: *${needed}*.`
+    } else if (
+      /APK_LIMIT_CHANGED/i
+        .test(code)
+    ) {
+      reason =
+        'Ukuran aktual file masuk tier biaya yang lebih tinggi, tapi Limit kamu tidak cukup. File tidak dikirim.'
     } else if (
       /DIRECT_NOT_FOUND|DOWNLOAD_FILE_NOT_FOUND|OPTION_INVALID/i
         .test(code)
@@ -1057,19 +1152,28 @@ async function downloadOption({
           `Coba provider/card lain atau ulangi nanti.`
       },
       msg
-        ? { quoted: msg }
+        ? {
+            quoted: msg
+          }
         : undefined
     )
   } finally {
     try {
       await downloaded
         ?.cleanup?.()
-    } catch (cleanupError) {
+    } catch (
+      cleanupError
+    ) {
       console.error(
         '[APK] cleanup:',
         cleanupError
       )
     }
+
+    try {
+      job
+        ?.release?.()
+    } catch {}
 
     downloadLocks.delete(
       lockKey
@@ -1210,9 +1314,10 @@ function helpText(
     `• ${prefix}apk download 1\n` +
     `• ${prefix}apk page 2\n\n` +
     `Sumber: APKMODY • AN1 • LiteAPKs\n` +
-    `🎟 Download: ${DOWNLOAD_COST} Limit\n` +
-    `⭐ Premium: gratis\n` +
-    `👑 Owner: gratis`
+    `🎟 Download: 3–15 Limit sesuai ukuran\n` +
+    `⭐ Premium: 2–8 Limit\n` +
+    `👑 Owner: gratis\n` +
+    `🛡 Maksimum file: 1 GB`
   )
 }
 

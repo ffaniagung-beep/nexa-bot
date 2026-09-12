@@ -5,17 +5,55 @@ import {
   videoToSticker
 } from '../lib/maker.js'
 
+import {
+  acquireMaker
+} from '../lib/maker-runtime.js'
+
+import {
+  beginBilledJob,
+  refundBilledJob
+} from '../lib/jobBilling.js'
+
+import {
+  resourceBusyText
+} from '../lib/resourceGate.js'
+
+import {
+  sendLimitEmpty
+} from '../lib/limitGate.js'
+
+const STICKER_COST = 2
+const STICKER_PREMIUM_COST = 1
+
+async function react(
+  sock,
+  jid,
+  msg,
+  text
+) {
+  try {
+    await sock.sendMessage(
+      jid,
+      {
+        react: {
+          text,
+          key:
+            msg.key
+        }
+      }
+    )
+  } catch {}
+}
+
 export default {
-  name:
-    'sticker',
+  name: 'sticker',
 
   aliases: [
     's',
     'stiker'
   ],
 
-  category:
-    'MAKER',
+  category: 'MAKER',
 
   description:
     'Mengubah foto/video menjadi sticker',
@@ -47,33 +85,85 @@ export default {
         {
           text:
             `🖼️ *STICKER MAKER*\n\n` +
-            `Reply foto atau video dengan:\n` +
-            `*.sticker*\n\n` +
-            `Alias:\n` +
-            `*.s*\n\n` +
-            `Video maksimal diproses sekitar *6 detik*.`
+            `Reply foto atau video dengan *.sticker*.\n` +
+            `Video maksimal diproses sekitar *6 detik*.\n\n` +
+            `🎟 Free: ${STICKER_COST} Limit • Premium: ${STICKER_PREMIUM_COST} • Owner: gratis.`
         },
         {
-          quoted:
-            msg
+          quoted: msg
         }
       )
     }
 
-    await sock.sendMessage(
-      jid,
-      {
-        react: {
-          text:
-            '⏳',
+    const localRelease =
+      acquireMaker()
 
-          key:
-            msg.key
+    if (!localRelease) {
+      return sock.sendMessage(
+        jid,
+        {
+          text:
+            '⏳ Dua proses maker sedang berjalan. Coba lagi setelah selesai.'
+        },
+        {
+          quoted: msg
         }
+      )
+    }
+
+    const job =
+      beginBilledJob({
+        msg,
+        jid,
+        kind: 'maker',
+        normalCost:
+          STICKER_COST,
+        premiumCost:
+          STICKER_PREMIUM_COST,
+        globalLimit: 2,
+        perOwnerLimit: 1,
+        ttlMs:
+          5 * 60 * 1000
+      })
+
+    if (!job.ok) {
+      localRelease()
+
+      if (
+        job.reason ===
+        'LIMIT'
+      ) {
+        return sendLimitEmpty({
+          sock,
+          msg,
+          jid
+        })
       }
+
+      return sock.sendMessage(
+        jid,
+        {
+          text:
+            resourceBusyText(
+              job.busy,
+              'proses maker'
+            )
+        },
+        {
+          quoted: msg
+        }
+      )
+    }
+
+    await react(
+      sock,
+      jid,
+      msg,
+      '⏳'
     )
 
     let result
+    let delivered = false
 
     try {
       const buffer =
@@ -81,20 +171,15 @@ export default {
           source
         )
 
-      if (
+      result =
         source.type ===
         'image'
-      ) {
-        result =
-          await imageToSticker(
-            buffer
-          )
-      } else {
-        result =
-          await videoToSticker(
-            buffer
-          )
-      }
+          ? await imageToSticker(
+              buffer
+            )
+          : await videoToSticker(
+              buffer
+            )
 
       await sock.sendMessage(
         jid,
@@ -103,22 +188,17 @@ export default {
             result.buffer
         },
         {
-          quoted:
-            msg
+          quoted: msg
         }
       )
 
-      await sock.sendMessage(
-        jid,
-        {
-          react: {
-            text:
-              '✅',
+      delivered = true
 
-            key:
-              msg.key
-          }
-        }
+      await react(
+        sock,
+        jid,
+        msg,
+        '✅'
       )
     } catch (err) {
       console.error(
@@ -126,35 +206,47 @@ export default {
         err
       )
 
-      await sock.sendMessage(
-        jid,
-        {
-          react: {
-            text:
-              '❌',
+      const refund =
+        !delivered
+          ? refundBilledJob(
+              job,
+              'sticker_failed'
+            )
+          : {
+              refunded: false
+            }
 
-            key:
-              msg.key
-          }
-        }
+      await react(
+        sock,
+        jid,
+        msg,
+        '❌'
       )
 
       await sock.sendMessage(
         jid,
         {
           text:
-            `⚠️ Gagal membuat sticker.\n\n` +
+            `⚠️ Gagal membuat sticker.\n` +
+            (
+              refund.refunded
+                ? `🎟 ${refund.cost} Limit dikembalikan.\n`
+                : ''
+            ) +
             `Pastikan medianya foto atau video yang valid.`
         },
         {
-          quoted:
-            msg
+          quoted: msg
         }
       )
     } finally {
       try {
-        result?.cleanup()
+        await result
+          ?.cleanup?.()
       } catch {}
+
+      job.release()
+      localRelease()
     }
   }
 }
