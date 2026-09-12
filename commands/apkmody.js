@@ -31,8 +31,12 @@ import {
   getApkDetail,
   resolveApkDownload,
   downloadApkToTemp,
+  parseSizeBytes,
+  MAX_APK_DOWNLOAD_BYTES,
   formatBytes
 } from '../lib/apkProviders.js'
+
+// NEXA APK 1GB COMMAND GUARD V1
 
 const SESSION_TTL =
   15 * 60 * 1000
@@ -862,6 +866,22 @@ async function downloadOption({
       )
     }
 
+    const declaredBytes =
+      parseSizeBytes(
+        option.size ||
+        detail.size
+      )
+
+    if (
+      declaredBytes &&
+      declaredBytes >
+        MAX_APK_DOWNLOAD_BYTES
+    ) {
+      throw new Error(
+        'APK_FILE_TOO_LARGE'
+      )
+    }
+
     access =
       canUseLimit({
         msg,
@@ -1003,6 +1023,12 @@ async function downloadOption({
       )
 
     if (
+      /FILE_TOO_LARGE/i
+        .test(code)
+    ) {
+      reason =
+        'Ukuran file melewati batas aman *1 GB*. NEXA membatalkan download demi keamanan server.'
+    } else if (
       /DIRECT_NOT_FOUND|DOWNLOAD_FILE_NOT_FOUND|OPTION_INVALID/i
         .test(code)
     ) {

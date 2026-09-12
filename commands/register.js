@@ -1,3 +1,4 @@
+// NEXA REGISTER PREFIX-SAFE V1
 import {
   ensureUser,
   updateUser
@@ -6,18 +7,6 @@ import {
 import {
   resolveProfileJid
 } from '../lib/profile.js'
-
-function getText(msg) {
-  const m =
-    msg?.message || {}
-
-  return (
-    m.conversation ||
-    m.extendedTextMessage?.text ||
-    m.imageMessage?.caption ||
-    ''
-  )
-}
 
 export default {
   name:
@@ -40,10 +29,20 @@ export default {
     sock,
     msg,
     jid,
-    isOwner
+    isOwner,
+    args,
+    config
   }) {
+    const prefix =
+      config?.prefix ||
+      '.'
+
     const userJid =
-      await resolveProfileJid(sock, msg, jid)
+      await resolveProfileJid(
+        sock,
+        msg,
+        jid
+      )
 
     const user =
       ensureUser(
@@ -60,7 +59,7 @@ export default {
             `✓ Kamu sudah terdaftar di NEXA.\n\n` +
             `Nama  : *${user.name}*\n` +
             `Umur  : *${user.age}*\n\n` +
-            `Ketik *.menu* untuk membuka menu.`
+            `Ketik *${prefix}menu* untuk membuka menu.`
         },
         {
           quoted: msg
@@ -68,15 +67,9 @@ export default {
       )
     }
 
-    const fullText =
-      getText(msg)
-
     const input =
-      fullText
-        .replace(
-          /^\.(register|reg)\s*/i,
-          ''
-        )
+      (args || [])
+        .join(' ')
         .trim()
 
     const separator =
@@ -93,9 +86,9 @@ export default {
           text:
             `✦ *REGISTER NEXA*\n\n` +
             `Format pendaftaran:\n` +
-            `*.register nama.umur*\n\n` +
+            `*${prefix}register nama.umur*\n\n` +
             `Contoh:\n` +
-            `*.register Budi.17*`
+            `*${prefix}register Budi.17*`
         },
         {
           quoted: msg
@@ -161,7 +154,8 @@ export default {
         age,
         registeredAt:
           Date.now()
-      }
+      },
+      'register'
     )
 
     const role =
@@ -179,7 +173,7 @@ export default {
           `Umur  : *${age}*\n` +
           `Role  : *${role}*\n\n` +
           `Akun NEXA kamu sudah aktif.\n` +
-          `Ketik *.menu* untuk mulai menggunakan bot.`
+          `Ketik *${prefix}menu* untuk mulai menggunakan bot.`
       },
       {
         quoted: msg

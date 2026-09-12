@@ -1,8 +1,6 @@
+// NEXA DAILY ATOMIC V1
 import {
-  ensureUser,
-  updateUser,
-  addLimit,
-  addCoin
+  claimDailyRewards
 } from '../lib/userdb.js'
 
 import {
@@ -12,29 +10,6 @@ import {
 // =====================================
 // DAILY - RESET 00:00 WIB
 // =====================================
-
-function getJakartaDateKey(
-  timestamp = Date.now()
-) {
-  return new Intl.DateTimeFormat(
-    'en-CA',
-    {
-      timeZone:
-        'Asia/Jakarta',
-
-      year:
-        'numeric',
-
-      month:
-        '2-digit',
-
-      day:
-        '2-digit'
-    }
-  ).format(
-    new Date(timestamp)
-  )
-}
 
 function getNextMidnightWIB() {
   const now =
@@ -118,29 +93,25 @@ export default {
         jid
       )
 
-    const user =
-      ensureUser(
-        userJid
+    const LIMIT_REWARD =
+      10
+
+    const COIN_REWARD =
+      50
+
+    const claim =
+      claimDailyRewards(
+        userJid,
+        {
+          limitReward:
+            LIMIT_REWARD,
+
+          coinReward:
+            COIN_REWARD
+        }
       )
 
-    const today =
-      getJakartaDateKey()
-
-    const lastClaimDate =
-      user.lastDaily
-        ? getJakartaDateKey(
-            user.lastDaily
-          )
-        : null
-
-    // =================================
-    // SUDAH CLAIM HARI INI
-    // =================================
-
-    if (
-      lastClaimDate ===
-      today
-    ) {
+    if (!claim.claimed) {
       const resetAt =
         getNextMidnightWIB()
 
@@ -164,34 +135,8 @@ export default {
       )
     }
 
-    // =================================
-    // REWARD
-    // =================================
-
-    const LIMIT_REWARD =
-      10
-
-    const COIN_REWARD =
-      50
-
-    addLimit(
-      userJid,
-      LIMIT_REWARD
-    )
-
     const updated =
-      addCoin(
-        userJid,
-        COIN_REWARD
-      )
-
-    updateUser(
-      userJid,
-      {
-        lastDaily:
-          Date.now()
-      }
-    )
+      claim.user
 
     await sock.sendMessage(
       jid,

@@ -20,6 +20,10 @@ import http from 'node:http'
 import https from 'node:https'
 
 import {
+  Transform
+} from 'node:stream'
+
+import {
   pipeline
 } from 'node:stream/promises'
 
@@ -40,6 +44,42 @@ const UPLOAD_TIMEOUT =
 
 const MAX_REDIRECTS =
   8
+
+// NEXA MEDIAFIRE 1GB HARD LIMIT V1
+const MAX_MEDIAFIRE_BYTES =
+  1024 * 1024 * 1024
+
+function createMediaFireSizeGuard() {
+  let total = 0
+
+  return new Transform({
+    transform(
+      chunk,
+      encoding,
+      callback
+    ) {
+      total +=
+        chunk.length
+
+      if (
+        total >
+        MAX_MEDIAFIRE_BYTES
+      ) {
+        callback(
+          new Error(
+            'MEDIAFIRE_FILE_TOO_LARGE'
+          )
+        )
+        return
+      }
+
+      callback(
+        null,
+        chunk
+      )
+    }
+  })
+}
 
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
@@ -709,6 +749,16 @@ async function downloadToTemp({
     }
 
   try {
+    if (
+      expectedBytes &&
+      expectedBytes >
+        MAX_MEDIAFIRE_BYTES
+    ) {
+      throw new Error(
+        'MEDIAFIRE_FILE_TOO_LARGE'
+      )
+    }
+
     const {
       response,
       contentType,
@@ -721,6 +771,17 @@ async function downloadToTemp({
           referer
         }
       )
+
+    if (
+      contentLength >
+      MAX_MEDIAFIRE_BYTES
+    ) {
+      response.resume()
+
+      throw new Error(
+        'MEDIAFIRE_FILE_TOO_LARGE'
+      )
+    }
 
     if (
       /^text\/html\b/i.test(
@@ -765,6 +826,7 @@ async function downloadToTemp({
 
     await pipeline(
       response,
+      createMediaFireSizeGuard(),
       createWriteStream(
         filePath,
         {
@@ -784,6 +846,15 @@ async function downloadToTemp({
     if (!actualBytes) {
       throw new Error(
         'MEDIAFIRE_EMPTY_FILE'
+      )
+    }
+
+    if (
+      actualBytes >
+      MAX_MEDIAFIRE_BYTES
+    ) {
+      throw new Error(
+        'MEDIAFIRE_FILE_TOO_LARGE'
       )
     }
 
@@ -851,6 +922,18 @@ async function downloadWithFallback({
   } catch (error) {
     localError = error
 
+    if (
+      /MEDIAFIRE_FILE_TOO_LARGE/i
+        .test(
+          String(
+            error?.message ||
+            ''
+          )
+        )
+    ) {
+      throw error
+    }
+
     console.warn(
       '[MEDIAFIRE V3] local resolve/download failed:',
       error?.message ||
@@ -885,6 +968,16 @@ function errorText(error) {
     } ${
       error?.message || ''
     }`
+
+  if (
+    /FILE_TOO_LARGE/i
+      .test(text)
+  ) {
+    return (
+      'Ukuran file melewati batas aman 1 GB.\n' +
+      'NEXA membatalkan download demi keamanan server.'
+    )
+  }
 
   if (
     /HTML_INSTEAD_OF_FILE|SIZE_MISMATCH/i
@@ -1029,6 +1122,16 @@ export default {
         parseApiSize(
           data.filesize
         )
+
+      if (
+        expectedBytes &&
+        expectedBytes >
+          MAX_MEDIAFIRE_BYTES
+      ) {
+        throw new Error(
+          'MEDIAFIRE_FILE_TOO_LARGE'
+        )
+      }
 
       await sock.sendMessage(
         jid,
