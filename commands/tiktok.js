@@ -1,5 +1,10 @@
-const API_URL =
-  'https://api.alwayscodex.eu.cc/api/downloader/tiktok'
+import * as cheerio from 'cheerio'
+
+const SSSTIK_HOME =
+  'https://ssstik.io/id'
+
+const SSSTIK_DOWNLOAD =
+  'https://ssstik.io/abc?url=dl'
 
 const MAX_VIDEO_BYTES =
   50 * 1024 * 1024
@@ -324,6 +329,250 @@ function compactNumber(value) {
   )
 }
 
+function extractSsstikToken(html) {
+  const patterns = [
+    /tt\s*:\s*['"]([\w\d]+)['"]/i,
+    /s_tt\s*=\s*['"]([^'"]+)['"]/i,
+    /\btt\s*=\s*['"]([^'"]+)['"]/i
+  ]
+
+  for (const pattern of patterns) {
+    const match =
+      String(html || '').match(pattern)
+
+    if (match?.[1]) {
+      return match[1]
+    }
+  }
+
+  return null
+}
+
+function cookieHeader(response) {
+  if (
+    typeof response?.headers?.getSetCookie ===
+    'function'
+  ) {
+    return response.headers
+      .getSetCookie()
+      .map(value =>
+        value.split(';')[0]
+      )
+      .join('; ')
+  }
+
+  const raw =
+    response?.headers?.get?.(
+      'set-cookie'
+    )
+
+  return raw
+    ? raw.split(',')
+      .map(value =>
+        value.split(';')[0]
+      )
+      .join('; ')
+    : ''
+}
+
+function decodeSsstikUrl(value) {
+  if (!httpUrl(value)) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(value)
+
+    if (
+      !parsed.hostname
+        .toLowerCase()
+        .includes('ssscdn.io')
+    ) {
+      return value
+    }
+
+    const parts =
+      parsed.pathname
+        .split('/')
+        .filter(Boolean)
+
+    // Beberapa link SSSTik membungkus URL asli
+    // sebagai base64 di bagian akhir path.
+    for (
+      let index = 0;
+      index < parts.length;
+      index += 1
+    ) {
+      const encoded =
+        parts.slice(index).join('/')
+
+      try {
+        const decoded =
+          Buffer.from(
+            encoded,
+            'base64'
+          ).toString('utf8')
+
+        if (httpUrl(decoded)) {
+          return decoded
+        }
+      } catch {
+        // coba potongan path berikutnya
+      }
+    }
+  } catch {
+    return value
+  }
+
+  return value
+}
+
+function parseSsstikResult(html) {
+  const $ = cheerio.load(
+    String(html || '')
+  )
+
+  const warning =
+    cleanText(
+      $('.is-icon.b-box.warning')
+        .text() ||
+      $('.warning').first().text()
+    )
+
+  if (warning) {
+    throw new Error(
+      `SSSTIK_REJECTED:${warning}`
+    )
+  }
+
+  const title =
+    cleanText(
+      $('.maintext').first().text()
+    )
+
+  const author =
+    cleanUser(
+      $('.result_author')
+        .first()
+        .text()
+        .match(/@([\w.]+)/)?.[1] ||
+      $('.author')
+        .first()
+        .text()
+        .match(/@([\w.]+)/)?.[1] ||
+      ''
+    )
+
+  const thumbnail =
+    $('.result_author img')
+      .first()
+      .attr('src') ||
+    $('.result_overlay img')
+      .first()
+      .attr('src') ||
+    null
+
+  const links = []
+
+  $('.result_overlay_buttons a[href], a.download_link[href]')
+    .each((_, element) => {
+      const raw =
+        $(element).attr('href')
+
+      const url =
+        decodeSsstikUrl(raw)
+
+      if (!url) {
+        return
+      }
+
+      links.push({
+        url,
+        text:
+          cleanText(
+            $(element).text(),
+            180
+          ).toLowerCase()
+      })
+    })
+
+  // Fallback kalau class SSSTik berubah tetapi href media
+  // masih dikembalikan di HTML hasil.
+  if (!links.length) {
+    $('a[href]').each((_, element) => {
+      const raw =
+        $(element).attr('href')
+
+      const url =
+        decodeSsstikUrl(raw)
+
+      if (!url) {
+        return
+      }
+
+      const text =
+        cleanText(
+          $(element).text(),
+          180
+        ).toLowerCase()
+
+      if (
+        text.includes('download') ||
+        text.includes('unduh') ||
+        text.includes('mp4') ||
+        text.includes('mp3') ||
+        text.includes('watermark') ||
+        text.includes('hd')
+      ) {
+        links.push({
+          url,
+          text
+        })
+      }
+    })
+  }
+
+  const videos =
+    links.filter(item =>
+      !/mp3|music|audio|sound/.test(
+        item.text
+      )
+    )
+
+  const preferred =
+    videos.find(item =>
+      /without watermark|no watermark|tanpa watermark|hd/.test(
+        item.text
+      )
+    ) ||
+    videos[0] ||
+    null
+
+  const slides = []
+
+  $('.slide[href]').each(
+    (_, element) => {
+      const url =
+        decodeSsstikUrl(
+          $(element).attr('href')
+        )
+
+      if (url) {
+        slides.push(url)
+      }
+    }
+  )
+
+  return {
+    videoUrl:
+      preferred?.url || null,
+    title,
+    author,
+    thumbnail,
+    slides
+  }
+}
+
 async function fetchTikTok(url) {
   const controller =
     new AbortController()
@@ -334,26 +583,82 @@ async function fetchTikTok(url) {
       30_000
     )
 
+  const userAgent =
+    'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36'
+
   try {
+    const home =
+      await fetch(
+        SSSTIK_HOME,
+        {
+          redirect: 'follow',
+          headers: {
+            'User-Agent': userAgent,
+            Accept:
+              'text/html,application/xhtml+xml'
+          },
+          signal:
+            controller.signal
+        }
+      )
+
+    if (!home.ok) {
+      throw new Error(
+        `SSSTIK_HOME_HTTP_${home.status}`
+      )
+    }
+
+    const homeHtml =
+      await home.text()
+
+    const token =
+      extractSsstikToken(
+        homeHtml
+      )
+
+    if (!token) {
+      throw new Error(
+        'SSSTIK_TOKEN_NOT_FOUND'
+      )
+    }
+
+    const cookies =
+      cookieHeader(home)
+
+    const form =
+      new URLSearchParams({
+        id: url,
+        locale: 'id',
+        tt: token
+      })
+
     const response =
       await fetch(
-        API_URL,
+        SSSTIK_DOWNLOAD,
         {
           method: 'POST',
-
+          redirect: 'follow',
           headers: {
+            'User-Agent': userAgent,
+            Accept: 'text/html,*/*',
             'Content-Type':
-              'application/json',
-
-            Accept:
-              'application/json'
+              'application/x-www-form-urlencoded;charset=UTF-8',
+            'HX-Current-URL':
+              SSSTIK_HOME,
+            'HX-Request': 'true',
+            'HX-Target': 'target',
+            'HX-Trigger':
+              '_gcaptcha_pt',
+            Origin:
+              'https://ssstik.io',
+            Referer:
+              SSSTIK_HOME,
+            ...(cookies
+              ? { Cookie: cookies }
+              : {})
           },
-
           body:
-            JSON.stringify({
-              url
-            }),
-
+            form.toString(),
           signal:
             controller.signal
         }
@@ -361,70 +666,41 @@ async function fetchTikTok(url) {
 
     if (!response.ok) {
       throw new Error(
-        `API_HTTP_${response.status}`
+        `SSSTIK_HTTP_${response.status}`
       )
     }
 
-    const data =
-      await response.json()
+    const html =
+      await response.text()
 
-    const videoUrl =
-      findVideoUrl(data)
+    const parsed =
+      parseSsstikResult(html)
 
-    if (!videoUrl) {
+    if (!parsed.videoUrl) {
       console.error(
-        '[TIKTOK] Bentuk response API:',
-        JSON.stringify(
-          data,
-          null,
-          2
-        ).slice(0, 5000)
+        '[TIKTOK] SSSTik HTML tidak berisi video:',
+        html.slice(0, 5000)
       )
 
       throw new Error(
-        'VIDEO_URL_NOT_FOUND'
+        parsed.slides.length
+          ? 'TIKTOK_SLIDESHOW'
+          : 'VIDEO_URL_NOT_FOUND'
       )
     }
 
     return {
-      raw: data,
-
-      videoUrl,
-
+      raw: html,
+      videoUrl:
+        parsed.videoUrl,
       author:
-        cleanUser(
-          findAuthor(data)
-        ),
-
+        parsed.author,
       description:
-        cleanText(
-          findText(data)
-        ),
-
-      views:
-        findNumber(
-          data,
-          [
-            'play_count',
-            'playCount',
-            'views',
-            'view_count',
-            'viewCount',
-            'plays'
-          ]
-        ),
-
-      likes:
-        findNumber(
-          data,
-          [
-            'digg_count',
-            'diggCount',
-            'likes',
-            'like_count',
-            'likeCount'
-          ]
-        )
+        parsed.title,
+      thumbnail:
+        parsed.thumbnail,
+      views: null,
+      likes: null
     }
   } catch (error) {
     if (
@@ -432,7 +708,7 @@ async function fetchTikTok(url) {
       'AbortError'
     ) {
       throw new Error(
-        'API_TIMEOUT'
+        'SSSTIK_TIMEOUT'
       )
     }
 
@@ -669,7 +945,7 @@ export default {
       )
 
       console.log(
-        '✅ TikTok via AlwaysCodex:',
+        '✅ TikTok via SSSTik:',
         result.author ||
         'unknown'
       )
@@ -692,13 +968,13 @@ export default {
           'Video terlalu besar untuk dikirim oleh NEXA.'
       } else if (
         error?.message ===
-        'API_TIMEOUT' ||
+        'SSSTIK_TIMEOUT' ||
         error?.message ===
         'MEDIA_TIMEOUT'
       ) {
         text =
           '⚠️ *NEXA • TIKTOK*\n\n' +
-          'Server downloader terlalu lama merespons. Coba lagi sebentar.'
+          'SSSTik terlalu lama merespons. Coba lagi sebentar.'
       }
 
       await sock.sendMessage(
