@@ -17,7 +17,7 @@ import {
 } from '../lib/profile.js'
 
 const API_URL =
-  'https://api.ikyyxd.my.id/search/pinterest'
+  'https://api.zyvor.my.id/api/search/pinterest'
 
 const SESSION_TTL =
   10 * 60 * 1000
@@ -270,7 +270,7 @@ function normalizeItem(
 ) {
   const imageUrl =
     safeHttpUrl(
-      item?.image_url
+      item?.image
     )
 
   if (!imageUrl) {
@@ -280,7 +280,7 @@ function normalizeItem(
   return {
     id:
       cleanText(
-        item?.id,
+        item?.index,
         100
       ),
 
@@ -295,34 +295,28 @@ function normalizeItem(
 
     source:
       safeHttpUrl(
-        item?.source
+        item?.pinUrl
       ),
 
     username:
       cleanText(
-        item?.user
-          ?.username,
+        item?.username,
         100
       ),
 
     name:
       cleanText(
-        item?.user
-          ?.name,
+        item?.fullName,
         120
       ),
 
     followers:
-      Number(
-        item?.user
-          ?.followers
-      )
+      null
   }
 }
 
 async function searchPinterest(
-  query,
-  apiKey
+  query
 ) {
   const url =
     new URL(
@@ -330,13 +324,13 @@ async function searchPinterest(
     )
 
   url.searchParams.set(
-    'apikey',
-    apiKey
+    'query',
+    query
   )
 
   url.searchParams.set(
-    'q',
-    query
+    'limit',
+    String(MAX_RESULTS)
   )
 
   const controller =
@@ -397,9 +391,9 @@ async function searchPinterest(
 
     const items =
       Array.isArray(
-        json?.results
+        json?.result?.items
       )
-        ? json.results
+        ? json.result.items
             .map(
               normalizeItem
             )
@@ -413,14 +407,14 @@ async function searchPinterest(
     return {
       query:
         cleanText(
-          json?.query ||
+          json?.result?.query ||
           query,
           120
         ),
 
       count:
         Number(
-          json?.count
+          json?.result?.total
         ) || items.length,
 
       items
@@ -848,17 +842,6 @@ export default {
         return
       }
 
-      const apiKey =
-        getApiKey(
-          config
-        )
-
-      if (!apiKey) {
-        throw new Error(
-          'IKYY_API_KEY_MISSING'
-        )
-      }
-
       await sock.sendMessage(
         jid,
         {
@@ -874,8 +857,7 @@ export default {
 
       const result =
         await searchPinterest(
-          query,
-          apiKey
+          query
         )
 
       if (
