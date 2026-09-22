@@ -1,5 +1,6 @@
 // NEXA PIN IKYY CAROUSEL V2
 import {
+  AIRich,
   Button,
   Carousel
 } from '@rexxhayanasi/elaina-baileys'
@@ -542,6 +543,91 @@ async function buildCard({
   }
 }
 
+async function startRichStatus({
+  sock,
+  msg,
+  jid,
+  query
+}) {
+  try {
+    const rich =
+      new AIRich(sock)
+        .setTitle(
+          '✦ NEXA • PINTEREST'
+        )
+        .setFooter(
+          'NEXA Search • AIRich'
+        )
+        .addText(
+          `⌕ *${cleanText(query, 80)}*`,
+          {
+            id:
+              'query'
+          }
+        )
+        .addText(
+          '⏳ Mencari gambar Pinterest...',
+          {
+            id:
+              'status'
+          }
+        )
+
+    await rich.send(
+      jid,
+      {
+        quoted:
+          msg
+      }
+    )
+
+    return rich
+  } catch (
+    error
+  ) {
+    console.warn(
+      '[PINTEREST] AIRich start fallback:',
+      error?.message ||
+      error
+    )
+
+    return null
+  }
+}
+
+async function updateRichStatus(
+  rich,
+  text
+) {
+  if (!rich) {
+    return false
+  }
+
+  try {
+    rich.addText(
+      text,
+      {
+        replace:
+          'status'
+      }
+    )
+
+    await rich.sendEdit()
+
+    return true
+  } catch (
+    error
+  ) {
+    console.warn(
+      '[PINTEREST] AIRich edit fallback:',
+      error?.message ||
+      error
+    )
+
+    return false
+  }
+}
+
 async function sendCarousel({
   sock,
   jid,
@@ -738,6 +824,9 @@ export default {
         .trim()
         .toLowerCase()
 
+    let richStatus =
+      null
+
     try {
       if (
         first ===
@@ -842,18 +931,28 @@ export default {
         return
       }
 
-      await sock.sendMessage(
-        jid,
-        {
-          text:
-            `✦ *NEXA • PINTEREST*\n\n` +
-            `⌕ Mencari *${cleanText(query, 80)}*...`
-        },
-        {
-          quoted:
-            msg
-        }
-      )
+      richStatus =
+        await startRichStatus({
+          sock,
+          msg,
+          jid,
+          query
+        })
+
+      if (!richStatus) {
+        await sock.sendMessage(
+          jid,
+          {
+            text:
+              `✦ *NEXA • PINTEREST*\n\n` +
+              `⌕ Mencari *${cleanText(query, 80)}*...`
+          },
+          {
+            quoted:
+              msg
+          }
+        )
+      }
 
       const result =
         await searchPinterest(
@@ -863,21 +962,35 @@ export default {
       if (
         !result.items.length
       ) {
-        await sock.sendMessage(
-          jid,
-          {
-            text:
-              `✦ *NEXA • PINTEREST*\n\n` +
-              `Tidak ada hasil untuk *${cleanText(query, 80)}*.`
-          },
-          {
-            quoted:
-              msg
-          }
-        )
+        const updated =
+          await updateRichStatus(
+            richStatus,
+            `⚠️ Tidak ada hasil untuk *${cleanText(query, 80)}*.`
+          )
+
+        if (!updated) {
+          await sock.sendMessage(
+            jid,
+            {
+              text:
+                `✦ *NEXA • PINTEREST*\n\n` +
+                `Tidak ada hasil untuk *${cleanText(query, 80)}*.`
+            },
+            {
+              quoted:
+                msg
+            }
+          )
+        }
 
         return
       }
+
+      await updateRichStatus(
+        richStatus,
+        `✅ ${result.items.length} hasil ditemukan.\n` +
+        `🧩 Menyiapkan carousel...`
+      )
 
       const session =
         makeSession({
@@ -895,6 +1008,12 @@ export default {
         result,
         session
       })
+
+      await updateRichStatus(
+        richStatus,
+        `✅ Selesai • ${session.items.length} hasil siap.\n` +
+        `↔️ Geser carousel untuk melihat semuanya.`
+      )
     } catch (
       error
     ) {
@@ -924,18 +1043,26 @@ export default {
           'Pilihan gambar tidak ditemukan. Cari ulang lalu pilih card lain.'
       }
 
-      await sock.sendMessage(
-        jid,
-        {
-          text:
-            `⚠️ *NEXA • PINTEREST*\n\n` +
-            text
-        },
-        {
-          quoted:
-            msg
-        }
-      )
+      const updated =
+        await updateRichStatus(
+          richStatus,
+          `⚠️ ${text}`
+        )
+
+      if (!updated) {
+        await sock.sendMessage(
+          jid,
+          {
+            text:
+              `⚠️ *NEXA • PINTEREST*\n\n` +
+              text
+          },
+          {
+            quoted:
+              msg
+          }
+        )
+      }
     }
   }
 }
