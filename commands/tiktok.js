@@ -1,18 +1,22 @@
 import * as cheerio from 'cheerio'
 
-const SSSTIK_HOME_PAGE =
-  'https://ssstik.io/id'
+const MDOWN_ORIGIN =
+  'https://musicaldown.com'
 
-const SSSTIK_HOME_CANDIDATES = [
-  'https://ssstik.io/',
-  'https://ssstik.io/en'
+const MDOWN_HOME_CANDIDATES = [
+  'https://musicaldown.com/id',
+  'https://musicaldown.com/en',
+  'https://musicaldown.com/'
 ]
 
-const SSSTIK_DOWNLOAD =
-  'https://ssstik.io/abc?url=dl'
+const MDOWN_DOWNLOAD =
+  'https://musicaldown.com/download'
 
 const MAX_VIDEO_BYTES =
   50 * 1024 * 1024
+
+const USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
 
 function isTikTokUrl(value) {
   try {
@@ -28,278 +32,11 @@ function isTikTokUrl(value) {
   }
 }
 
-function walk(value, visit, path = []) {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return
-  }
-
-  if (Array.isArray(value)) {
-    for (
-      let i = 0;
-      i < value.length;
-      i += 1
-    ) {
-      walk(
-        value[i],
-        visit,
-        [...path, String(i)]
-      )
-    }
-
-    return
-  }
-
-  if (
-    typeof value === 'object'
-  ) {
-    for (
-      const [key, child]
-      of Object.entries(value)
-    ) {
-      visit(
-        key,
-        child,
-        [...path, key]
-      )
-
-      walk(
-        child,
-        visit,
-        [...path, key]
-      )
-    }
-  }
-}
-
-function findByKeys(
-  root,
-  keys,
-  accept = () => true
-) {
-  const wanted =
-    new Set(
-      keys.map(key =>
-        key.toLowerCase()
-      )
-    )
-
-  let found
-
-  walk(
-    root,
-    (key, value) => {
-      if (found !== undefined) {
-        return
-      }
-
-      if (
-        wanted.has(
-          String(key).toLowerCase()
-        ) &&
-        accept(value)
-      ) {
-        found = value
-      }
-    }
-  )
-
-  return found
-}
-
 function httpUrl(value) {
   return (
     typeof value === 'string' &&
     /^https?:\/\//i.test(value)
   )
-}
-
-function findVideoUrl(data) {
-  // AlwaysCodex TikTok response:
-  // result.downloads.nowm = [url1, url2, ...]
-  const nowm =
-    data?.result?.downloads?.nowm
-
-  if (Array.isArray(nowm)) {
-    const first =
-      nowm.find(httpUrl)
-
-    if (first) {
-      return first
-    }
-  }
-
-  if (httpUrl(nowm)) {
-    return nowm
-  }
-
-  const direct =
-    findByKeys(
-      data,
-      [
-        'no_watermark',
-        'nowatermark',
-        'noWatermark',
-        'play',
-        'play_url',
-        'playUrl',
-        'download_url',
-        'downloadUrl',
-        'video_url',
-        'videoUrl',
-        'hdplay',
-        'hd_play'
-      ],
-      httpUrl
-    )
-
-  if (direct) {
-    return direct
-  }
-
-  let fallback
-
-  walk(
-    data,
-    (key, value, path) => {
-      if (fallback) {
-        return
-      }
-
-      if (Array.isArray(value)) {
-        const candidate =
-          value.find(httpUrl)
-
-        const context =
-          `${path.join('.')} ${key}`
-            .toLowerCase()
-
-        if (
-          candidate &&
-          (
-            context.includes('nowm') ||
-            context.includes('video') ||
-            context.includes('play') ||
-            context.includes('download')
-          )
-        ) {
-          fallback = candidate
-        }
-
-        return
-      }
-
-      if (!httpUrl(value)) {
-        return
-      }
-
-      const context =
-        `${path.join('.')} ${key}`
-          .toLowerCase()
-
-      if (
-        context.includes('video') ||
-        context.includes('play') ||
-        context.includes('download')
-      ) {
-        fallback = value
-      }
-    }
-  )
-
-  return fallback
-}
-
-function findAuthor(data) {
-  const authorObject =
-    findByKeys(
-      data,
-      [
-        'author',
-        'creator',
-        'user'
-      ],
-      value =>
-        value &&
-        typeof value === 'object' &&
-        !Array.isArray(value)
-    )
-
-  if (authorObject) {
-    const fromObject =
-      findByKeys(
-        authorObject,
-        [
-          'unique_id',
-          'uniqueId',
-          'username',
-          'user_name',
-          'nickname',
-          'name'
-        ],
-        value =>
-          typeof value === 'string' &&
-          value.trim()
-      )
-
-    if (fromObject) {
-      return fromObject
-    }
-  }
-
-  return findByKeys(
-    data,
-    [
-      'unique_id',
-      'uniqueId',
-      'username',
-      'author_name',
-      'authorName',
-      'nickname'
-    ],
-    value =>
-      typeof value === 'string' &&
-      value.trim()
-  )
-}
-
-function findText(data) {
-  return findByKeys(
-    data,
-    [
-      'description',
-      'desc',
-      'title',
-      'caption'
-    ],
-    value =>
-      typeof value === 'string' &&
-      value.trim()
-  )
-}
-
-function findNumber(data, keys) {
-  const value =
-    findByKeys(
-      data,
-      keys,
-      candidate => {
-        const number =
-          Number(candidate)
-
-        return Number.isFinite(number)
-      }
-    )
-
-  if (
-    value === undefined
-  ) {
-    return null
-  }
-
-  return Number(value)
 }
 
 function cleanText(value, max = 650) {
@@ -334,239 +71,432 @@ function compactNumber(value) {
   )
 }
 
-function extractSsstikToken(html) {
-  const patterns = [
-    /tt\s*:\s*['"]([\w\d]+)['"]/i,
-    /s_tt\s*=\s*['"]([^'"]+)['"]/i,
-    /\btt\s*=\s*['"]([^'"]+)['"]/i
-  ]
+function cookiesFromResponse(response) {
+  const values = []
 
-  for (const pattern of patterns) {
-    const match =
-      String(html || '').match(pattern)
-
-    if (match?.[1]) {
-      return match[1]
-    }
-  }
-
-  return null
-}
-
-function cookieHeader(response) {
   if (
     typeof response?.headers?.getSetCookie ===
     'function'
   ) {
-    return response.headers
-      .getSetCookie()
-      .map(value =>
-        value.split(';')[0]
+    values.push(
+      ...response.headers.getSetCookie()
+    )
+  } else {
+    const raw =
+      response?.headers?.get?.(
+        'set-cookie'
       )
-      .join('; ')
+
+    if (raw) {
+      values.push(raw)
+    }
   }
 
-  const raw =
-    response?.headers?.get?.(
-      'set-cookie'
+  return values
+    .map(value =>
+      String(value).split(';')[0]
     )
-
-  return raw
-    ? raw.split(',')
-      .map(value =>
-        value.split(';')[0]
-      )
-      .join('; ')
-    : ''
+    .filter(Boolean)
+    .join('; ')
 }
 
-function decodeSsstikUrl(value) {
-  if (!httpUrl(value)) {
-    return null
-  }
+function mergeCookies(...headers) {
+  const jar = new Map()
 
-  try {
-    const parsed = new URL(value)
-
-    if (
-      !parsed.hostname
-        .toLowerCase()
-        .includes('ssscdn.io')
-    ) {
-      return value
-    }
-
-    const parts =
-      parsed.pathname
-        .split('/')
-        .filter(Boolean)
-
-    // Beberapa link SSSTik membungkus URL asli
-    // sebagai base64 di bagian akhir path.
+  for (const header of headers) {
     for (
-      let index = 0;
-      index < parts.length;
-      index += 1
+      const part
+      of String(header || '').split(';')
     ) {
-      const encoded =
-        parts.slice(index).join('/')
+      const trimmed = part.trim()
+      const index = trimmed.indexOf('=')
 
-      try {
-        const decoded =
-          Buffer.from(
-            encoded,
-            'base64'
-          ).toString('utf8')
+      if (index <= 0) {
+        continue
+      }
 
-        if (httpUrl(decoded)) {
-          return decoded
-        }
-      } catch {
-        // coba potongan path berikutnya
+      const name =
+        trimmed.slice(0, index).trim()
+
+      const value =
+        trimmed.slice(index + 1).trim()
+
+      if (name) {
+        jar.set(name, value)
       }
     }
-  } catch {
-    return value
   }
 
-  return value
+  return [...jar.entries()]
+    .map(([name, value]) =>
+      `${name}=${value}`
+    )
+    .join('; ')
 }
 
-function parseSsstikResult(html) {
+function browserHeaders({
+  referer,
+  cookie,
+  form = false
+} = {}) {
+  return {
+    'User-Agent': USER_AGENT,
+    Accept:
+      form
+        ? 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        : 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language':
+      'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site':
+      referer
+        ? 'same-origin'
+        : 'none',
+    ...(referer
+      ? { Referer: referer }
+      : {}),
+    ...(cookie
+      ? { Cookie: cookie }
+      : {}),
+    ...(form
+      ? {
+          Origin: MDOWN_ORIGIN,
+          'Content-Type':
+            'application/x-www-form-urlencoded;charset=UTF-8'
+        }
+      : {})
+  }
+}
+
+function buildMdownForm(html, tiktokUrl) {
   const $ = cheerio.load(
     String(html || '')
   )
 
-  const warning =
-    cleanText(
-      $('.is-icon.b-box.warning')
-        .text() ||
-      $('.warning').first().text()
+  const data = new URLSearchParams()
+  let linkField = null
+
+  $('input[name]').each((_, element) => {
+    const input = $(element)
+    const name = cleanText(
+      input.attr('name'),
+      200
     )
 
-  if (warning) {
+    if (!name) {
+      return
+    }
+
+    const type =
+      cleanText(
+        input.attr('type') || 'text',
+        30
+      ).toLowerCase()
+
+    const id =
+      cleanText(
+        input.attr('id'),
+        100
+      ).toLowerCase()
+
+    const placeholder =
+      cleanText(
+        input.attr('placeholder'),
+        160
+      ).toLowerCase()
+
+    if (
+      id === 'link_url' ||
+      name.toLowerCase().includes('url') ||
+      (
+        type === 'text' &&
+        (
+          placeholder.includes('tiktok') ||
+          placeholder.includes('tautan') ||
+          placeholder.includes('link')
+        )
+      )
+    ) {
+      linkField = name
+      data.set(name, tiktokUrl)
+      return
+    }
+
+    if (
+      type === 'submit' ||
+      type === 'button' ||
+      type === 'reset' ||
+      input.is('[disabled]')
+    ) {
+      return
+    }
+
+    data.set(
+      name,
+      input.attr('value') || ''
+    )
+  })
+
+  if (!linkField) {
+    const textInput =
+      $('input[type="text"][name], input:not([type])[name]')
+        .first()
+
+    const name =
+      cleanText(
+        textInput.attr('name'),
+        200
+      )
+
+    if (name) {
+      linkField = name
+      data.set(name, tiktokUrl)
+    }
+  }
+
+  if (!linkField) {
     throw new Error(
-      `SSSTIK_REJECTED:${warning}`
+      'MDOWN_FORM_CHANGED'
     )
   }
 
-  const title =
-    cleanText(
-      $('.maintext').first().text()
-    )
+  return data
+}
 
-  const author =
-    cleanUser(
-      $('.result_author')
-        .first()
-        .text()
-        .match(/@([\w.]+)/)?.[1] ||
-      $('.author')
-        .first()
-        .text()
-        .match(/@([\w.]+)/)?.[1] ||
-      ''
-    )
+function normalizeHref(value, base) {
+  if (!value) {
+    return null
+  }
 
-  const thumbnail =
-    $('.result_author img')
-      .first()
-      .attr('src') ||
-    $('.result_overlay img')
-      .first()
-      .attr('src') ||
-    null
+  try {
+    const url =
+      new URL(value, base)
+
+    if (
+      !['http:', 'https:']
+        .includes(url.protocol)
+    ) {
+      return null
+    }
+
+    return url.href
+  } catch {
+    return null
+  }
+}
+
+function parseMdownResult(html, baseUrl) {
+  const $ = cheerio.load(
+    String(html || '')
+  )
 
   const links = []
 
-  $('.result_overlay_buttons a[href], a.download_link[href]')
-    .each((_, element) => {
-      const raw =
-        $(element).attr('href')
+  $('a[href]').each((_, element) => {
+    const anchor = $(element)
+    const url =
+      normalizeHref(
+        anchor.attr('href'),
+        baseUrl
+      )
 
-      const url =
-        decodeSsstikUrl(raw)
+    if (!url) {
+      return
+    }
 
-      if (!url) {
-        return
-      }
+    const text =
+      cleanText(
+        anchor.text(),
+        220
+      ).toLowerCase()
 
-      links.push({
-        url,
-        text:
-          cleanText(
-            $(element).text(),
-            180
-          ).toLowerCase()
-      })
-    })
+    const target =
+      cleanText(
+        anchor.attr('target'),
+        30
+      ).toLowerCase()
 
-  // Fallback kalau class SSSTik berubah tetapi href media
-  // masih dikembalikan di HTML hasil.
-  if (!links.length) {
-    $('a[href]').each((_, element) => {
-      const raw =
-        $(element).attr('href')
+    const style =
+      cleanText(
+        anchor.attr('style'),
+        200
+      ).toLowerCase()
 
-      const url =
-        decodeSsstikUrl(raw)
+    const className =
+      cleanText(
+        anchor.attr('class'),
+        200
+      ).toLowerCase()
 
-      if (!url) {
-        return
-      }
+    let score = 0
 
-      const text =
-        cleanText(
-          $(element).text(),
-          180
-        ).toLowerCase()
+    if (target === '_blank') {
+      score += 5
+    }
+
+    if (style.includes('margin-top')) {
+      score += 4
+    }
+
+    if (
+      className.includes('download') ||
+      className.includes('btn')
+    ) {
+      score += 3
+    }
+
+    if (/\bhd\b|high quality|high-quality/.test(text)) {
+      score += 12
+    }
+
+    if (
+      /without watermark|no watermark|tanpa watermark/.test(
+        text
+      )
+    ) {
+      score += 10
+    }
+
+    if (/mp4|video/.test(text)) {
+      score += 8
+    }
+
+    if (/download|unduh/.test(text)) {
+      score += 4
+    }
+
+    if (/mp3|audio|music|sound/.test(text)) {
+      score -= 100
+    }
+
+    if (
+      /watermark/.test(text) &&
+      !/without watermark|no watermark|tanpa watermark/.test(
+        text
+      )
+    ) {
+      score -= 20
+    }
+
+    try {
+      const host =
+        new URL(url).hostname
+          .toLowerCase()
 
       if (
-        text.includes('download') ||
-        text.includes('unduh') ||
-        text.includes('mp4') ||
-        text.includes('mp3') ||
-        text.includes('watermark') ||
-        text.includes('hd')
+        host !== 'musicaldown.com' &&
+        !host.endsWith('.musicaldown.com')
       ) {
-        links.push({
-          url,
-          text
-        })
+        score += 3
       }
-    })
-  }
+    } catch {}
 
-  const videos =
-    links.filter(item =>
-      !/mp3|music|audio|sound/.test(
-        item.text
+    links.push({
+      url,
+      text,
+      score
+    })
+  })
+
+  const candidates =
+    links
+      .filter(item =>
+        item.score > -50
       )
-    )
+      .sort((a, b) =>
+        b.score - a.score
+      )
 
   const preferred =
-    videos.find(item =>
-      /without watermark|no watermark|tanpa watermark|hd/.test(
-        item.text
-      )
+    candidates.find(item =>
+      item.score >= 8
     ) ||
-    videos[0] ||
+    candidates.find(item => {
+      try {
+        const parsed = new URL(item.url)
+        return (
+          parsed.hostname !== 'musicaldown.com' &&
+          !parsed.hostname.endsWith('.musicaldown.com')
+        )
+      } catch {
+        return false
+      }
+    }) ||
     null
 
-  const slides = []
+  let title = ''
 
-  $('.slide[href]').each(
-    (_, element) => {
-      const url =
-        decodeSsstikUrl(
-          $(element).attr('href')
-        )
+  const titleSelectors = [
+    '.video-desc',
+    '.video-info h2',
+    '.video-info h3',
+    '.caption',
+    '.description'
+  ]
 
-      if (url) {
-        slides.push(url)
-      }
+  for (const selector of titleSelectors) {
+    const value =
+      cleanText(
+        $(selector).first().text()
+      )
+
+    if (value) {
+      title = value
+      break
     }
-  )
+  }
+
+  let author = ''
+
+  const bodyText =
+    cleanText(
+      $('body').text(),
+      6000
+    )
+
+  const authorMatch =
+    bodyText.match(
+      /@([A-Za-z0-9._]{2,40})/
+    )
+
+  if (authorMatch?.[1]) {
+    author =
+      cleanUser(authorMatch[1])
+  }
+
+  let thumbnail = null
+
+  $('img[src]').each((_, element) => {
+    if (thumbnail) {
+      return
+    }
+
+    const image = $(element)
+    const src =
+      normalizeHref(
+        image.attr('src'),
+        baseUrl
+      )
+
+    if (!src) {
+      return
+    }
+
+    const context =
+      `${image.attr('alt') || ''} ${image.attr('class') || ''}`
+        .toLowerCase()
+
+    if (
+      !context.includes('logo') &&
+      !src.toLowerCase().includes('logo')
+    ) {
+      thumbnail = src
+    }
+  })
 
   return {
     videoUrl:
@@ -574,8 +504,95 @@ function parseSsstikResult(html) {
     title,
     author,
     thumbnail,
-    slides
+    links
   }
+}
+
+async function tryConvertPage({
+  html,
+  cookie,
+  referer,
+  signal
+}) {
+  if (
+    !/Convert Video Now/i.test(html)
+  ) {
+    return null
+  }
+
+  const dataMatch =
+    String(html).match(
+      /data\s*:\s*['"]([^'"]+)['"]/i
+    )
+
+  const urlMatch =
+    String(html).match(
+      /url\s*:\s*['"]([^'"]+)['"]/i
+    )
+
+  if (
+    !dataMatch?.[1] ||
+    !urlMatch?.[1]
+  ) {
+    return null
+  }
+
+  const endpoint =
+    normalizeHref(
+      urlMatch[1],
+      MDOWN_ORIGIN
+    )
+
+  if (!endpoint) {
+    return null
+  }
+
+  const body =
+    new URLSearchParams({
+      data: dataMatch[1]
+    })
+
+  const response =
+    await fetch(
+      endpoint,
+      {
+        method: 'POST',
+        redirect: 'follow',
+        headers: {
+          ...browserHeaders({
+            referer,
+            cookie,
+            form: true
+          }),
+          Accept:
+            'application/json,text/plain,*/*'
+        },
+        body: body.toString(),
+        signal
+      }
+    )
+
+  if (!response.ok) {
+    return null
+  }
+
+  const text =
+    await response.text()
+
+  try {
+    const json = JSON.parse(text)
+
+    if (
+      json?.success === true &&
+      httpUrl(json?.url)
+    ) {
+      return json.url
+    }
+  } catch {
+    // response bukan JSON valid
+  }
+
+  return null
 }
 
 async function fetchTikTok(url) {
@@ -585,153 +602,155 @@ async function fetchTikTok(url) {
   const timeout =
     setTimeout(
       () => controller.abort(),
-      30_000
+      35_000
     )
 
-  const userAgent =
-    'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36'
-
   try {
-    let home = null
+    let homeResponse = null
     let homeHtml = ''
-    let lastHomeStatus = null
+    let homeUrl = ''
+    let lastStatus = null
 
     for (
-      const homeUrl
-      of SSSTIK_HOME_CANDIDATES
+      const candidateUrl
+      of MDOWN_HOME_CANDIDATES
     ) {
-      const candidate =
+      const response =
         await fetch(
-          homeUrl,
+          candidateUrl,
           {
             redirect: 'follow',
-            headers: {
-              'User-Agent': userAgent,
-              Accept:
-                'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-              'Accept-Language':
-                'en-US,en;q=0.9,id;q=0.8',
-              'Cache-Control': 'no-cache',
-              Pragma: 'no-cache',
-              'Sec-Fetch-Dest': 'document',
-              'Sec-Fetch-Mode': 'navigate',
-              'Sec-Fetch-Site': 'none',
-              'Upgrade-Insecure-Requests': '1'
-            },
+            headers:
+              browserHeaders(),
             signal:
               controller.signal
           }
         )
 
-      lastHomeStatus =
-        candidate.status
+      lastStatus =
+        response.status
 
-      if (!candidate.ok) {
+      if (!response.ok) {
         continue
       }
 
-      const body =
-        await candidate.text()
+      const html =
+        await response.text()
 
-      if (
-        !extractSsstikToken(body)
-      ) {
+      try {
+        buildMdownForm(
+          html,
+          url
+        )
+      } catch {
         continue
       }
 
-      home = candidate
-      homeHtml = body
+      homeResponse = response
+      homeHtml = html
+      homeUrl = response.url || candidateUrl
       break
     }
 
-    if (!home) {
+    if (!homeResponse) {
       throw new Error(
-        `SSSTIK_HOME_HTTP_${lastHomeStatus || 'FAILED'}`
+        `MDOWN_HOME_HTTP_${lastStatus || 'FAILED'}`
       )
     }
 
-    const token =
-      extractSsstikToken(
-        homeHtml
+    let cookie =
+      cookiesFromResponse(
+        homeResponse
       )
-
-    if (!token) {
-      throw new Error(
-        'SSSTIK_TOKEN_NOT_FOUND'
-      )
-    }
-
-    const cookies =
-      cookieHeader(home)
 
     const form =
-      new URLSearchParams({
-        id: url,
-        locale: 'id',
-        tt: token
-      })
+      buildMdownForm(
+        homeHtml,
+        url
+      )
 
     const response =
       await fetch(
-        SSSTIK_DOWNLOAD,
+        MDOWN_DOWNLOAD,
         {
           method: 'POST',
           redirect: 'follow',
-          headers: {
-            'User-Agent': userAgent,
-            Accept: 'text/html,*/*',
-            'Content-Type':
-              'application/x-www-form-urlencoded;charset=UTF-8',
-            'HX-Current-URL':
-              SSSTIK_HOME_PAGE,
-            'HX-Request': 'true',
-            'HX-Target': 'target',
-            'HX-Trigger':
-              '_gcaptcha_pt',
-            Origin:
-              'https://ssstik.io',
-            Referer:
-              SSSTIK_HOME_PAGE,
-            'Accept-Language':
-              'en-US,en;q=0.9,id;q=0.8',
-            'Cache-Control': 'no-cache',
-            Pragma: 'no-cache',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            ...(cookies
-              ? { Cookie: cookies }
-              : {})
-          },
-          body:
-            form.toString(),
+          headers:
+            browserHeaders({
+              referer: homeUrl,
+              cookie,
+              form: true
+            }),
+          body: form.toString(),
           signal:
             controller.signal
         }
       )
 
+    cookie =
+      mergeCookies(
+        cookie,
+        cookiesFromResponse(
+          response
+        )
+      )
+
     if (!response.ok) {
       throw new Error(
-        `SSSTIK_HTTP_${response.status}`
+        `MDOWN_HTTP_${response.status}`
+      )
+    }
+
+    const finalUrl =
+      response.url ||
+      MDOWN_DOWNLOAD
+
+    if (/\/err(?:\/|\?|$)/i.test(finalUrl)) {
+      throw new Error(
+        'MDOWN_REJECTED'
       )
     }
 
     const html =
       await response.text()
 
+    const converted =
+      await tryConvertPage({
+        html,
+        cookie,
+        referer: finalUrl,
+        signal:
+          controller.signal
+      })
+
+    if (converted) {
+      return {
+        raw: html,
+        videoUrl: converted,
+        author: '',
+        description: '',
+        thumbnail: null,
+        views: null,
+        likes: null
+      }
+    }
+
     const parsed =
-      parseSsstikResult(html)
+      parseMdownResult(
+        html,
+        finalUrl
+      )
 
     if (!parsed.videoUrl) {
       console.error(
-        '[TIKTOK] SSSTik HTML tidak berisi video:',
+        '[TIKTOK] MusicalDown tidak menemukan link video. finalUrl=',
+        finalUrl,
+        ' html=',
         html.slice(0, 5000)
       )
 
       throw new Error(
-        parsed.slides.length
-          ? 'TIKTOK_SLIDESHOW'
-          : 'VIDEO_URL_NOT_FOUND'
+        'MDOWN_NO_VIDEO'
       )
     }
 
@@ -754,7 +773,7 @@ async function fetchTikTok(url) {
       'AbortError'
     ) {
       throw new Error(
-        'SSSTIK_TIMEOUT'
+        'MDOWN_TIMEOUT'
       )
     }
 
@@ -780,12 +799,11 @@ async function downloadVideo(url) {
         url,
         {
           redirect: 'follow',
-
           headers: {
-            'User-Agent':
-              'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36'
+            'User-Agent': USER_AGENT,
+            Referer:
+              'https://musicaldown.com/'
           },
-
           signal:
             controller.signal
         }
@@ -794,6 +812,22 @@ async function downloadVideo(url) {
     if (!response.ok) {
       throw new Error(
         `MEDIA_HTTP_${response.status}`
+      )
+    }
+
+    const type =
+      String(
+        response.headers.get(
+          'content-type'
+        ) || ''
+      ).toLowerCase()
+
+    if (
+      type.includes('text/html') ||
+      type.includes('application/json')
+    ) {
+      throw new Error(
+        'MEDIA_NOT_VIDEO'
       )
     }
 
@@ -991,7 +1025,7 @@ export default {
       )
 
       console.log(
-        '✅ TikTok via SSSTik:',
+        '✅ TikTok via MusicalDown:',
         result.author ||
         'unknown'
       )
@@ -1014,13 +1048,30 @@ export default {
           'Video terlalu besar untuk dikirim oleh NEXA.'
       } else if (
         error?.message ===
-        'SSSTIK_TIMEOUT' ||
+          'MDOWN_TIMEOUT' ||
         error?.message ===
-        'MEDIA_TIMEOUT'
+          'MEDIA_TIMEOUT'
       ) {
         text =
           '⚠️ *NEXA • TIKTOK*\n\n' +
-          'SSSTik terlalu lama merespons. Coba lagi sebentar.'
+          'MusicalDown terlalu lama merespons. Coba lagi sebentar.'
+      } else if (
+        /^MDOWN_HOME_HTTP_/.test(
+          error?.message || ''
+        )
+      ) {
+        text =
+          '⚠️ *NEXA • TIKTOK*\n\n' +
+          'MusicalDown menolak koneksi dari server NEXA saat ini.'
+      } else if (
+        error?.message ===
+          'MDOWN_FORM_CHANGED' ||
+        error?.message ===
+          'MDOWN_NO_VIDEO'
+      ) {
+        text =
+          '⚠️ *NEXA • TIKTOK*\n\n' +
+          'Format halaman MusicalDown sedang berubah. Coba lagi nanti.'
       }
 
       await sock.sendMessage(
