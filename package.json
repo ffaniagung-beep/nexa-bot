@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "mkdir -p \"$PWD/temp\" && TMPDIR=\"$PWD/temp\" node index.js"
+    "start": "if [ ! -d .git ]; then git init && git remote add origin https://github.com/ffaniagung-beep/nexa-bot.git && git fetch origin main && git reset --hard origin/main && git branch -M main && git branch --set-upstream-to=origin/main main; else git pull --ff-only origin main; fi && mkdir -p \"$PWD/temp\" && TMPDIR=\"$PWD/temp\" npm install && TMPDIR=\"$PWD/temp\" node index.js"
   },
   "keywords": [],
   "author": "",
