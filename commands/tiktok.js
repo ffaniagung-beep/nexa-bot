@@ -1,7 +1,12 @@
 import * as cheerio from 'cheerio'
 
-const SSSTIK_HOME =
+const SSSTIK_HOME_PAGE =
   'https://ssstik.io/id'
+
+const SSSTIK_HOME_CANDIDATES = [
+  'https://ssstik.io/',
+  'https://ssstik.io/en'
+]
 
 const SSSTIK_DOWNLOAD =
   'https://ssstik.io/abc?url=dl'
@@ -587,29 +592,63 @@ async function fetchTikTok(url) {
     'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36'
 
   try {
-    const home =
-      await fetch(
-        SSSTIK_HOME,
-        {
-          redirect: 'follow',
-          headers: {
-            'User-Agent': userAgent,
-            Accept:
-              'text/html,application/xhtml+xml'
-          },
-          signal:
-            controller.signal
-        }
-      )
+    let home = null
+    let homeHtml = ''
+    let lastHomeStatus = null
 
-    if (!home.ok) {
-      throw new Error(
-        `SSSTIK_HOME_HTTP_${home.status}`
-      )
+    for (
+      const homeUrl
+      of SSSTIK_HOME_CANDIDATES
+    ) {
+      const candidate =
+        await fetch(
+          homeUrl,
+          {
+            redirect: 'follow',
+            headers: {
+              'User-Agent': userAgent,
+              Accept:
+                'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language':
+                'en-US,en;q=0.9,id;q=0.8',
+              'Cache-Control': 'no-cache',
+              Pragma: 'no-cache',
+              'Sec-Fetch-Dest': 'document',
+              'Sec-Fetch-Mode': 'navigate',
+              'Sec-Fetch-Site': 'none',
+              'Upgrade-Insecure-Requests': '1'
+            },
+            signal:
+              controller.signal
+          }
+        )
+
+      lastHomeStatus =
+        candidate.status
+
+      if (!candidate.ok) {
+        continue
+      }
+
+      const body =
+        await candidate.text()
+
+      if (
+        !extractSsstikToken(body)
+      ) {
+        continue
+      }
+
+      home = candidate
+      homeHtml = body
+      break
     }
 
-    const homeHtml =
-      await home.text()
+    if (!home) {
+      throw new Error(
+        `SSSTIK_HOME_HTTP_${lastHomeStatus || 'FAILED'}`
+      )
+    }
 
     const token =
       extractSsstikToken(
@@ -644,7 +683,7 @@ async function fetchTikTok(url) {
             'Content-Type':
               'application/x-www-form-urlencoded;charset=UTF-8',
             'HX-Current-URL':
-              SSSTIK_HOME,
+              SSSTIK_HOME_PAGE,
             'HX-Request': 'true',
             'HX-Target': 'target',
             'HX-Trigger':
@@ -652,7 +691,14 @@ async function fetchTikTok(url) {
             Origin:
               'https://ssstik.io',
             Referer:
-              SSSTIK_HOME,
+              SSSTIK_HOME_PAGE,
+            'Accept-Language':
+              'en-US,en;q=0.9,id;q=0.8',
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
             ...(cookies
               ? { Cookie: cookies }
               : {})
