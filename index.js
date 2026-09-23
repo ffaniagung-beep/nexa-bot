@@ -19,6 +19,8 @@ import { pathToFileURL } from 'url'
 
 import config from './config.js'
 
+
+import { startGroupScheduleService } from './lib/groupSchedule.js'
 import {
   installChannelPromo
 } from './lib/channelPromo.js'
@@ -1754,6 +1756,13 @@ async function startBotInner() {
     })
 
   // =====================================
+  // =====================================
+  // GROUP SCHEDULE SERVICE V1
+  // =====================================
+  startGroupScheduleService(
+    sock
+  )
+
   // NEXA CHANNEL PROMO CONTEXT
   // =====================================
 
