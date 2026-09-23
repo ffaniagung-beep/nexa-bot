@@ -13,6 +13,12 @@ import {
   rpgNum
 } from '../lib/rpg/ui.js'
 
+import {
+  rpgBar,
+  rpgCommand,
+  sendRpgQuickPanel
+} from '../lib/rpg/uxV2.js'
+
 export default {
   name: 'stats',
   aliases: [],
@@ -23,7 +29,8 @@ export default {
   async run({
     sock,
     msg,
-    jid
+    jid,
+    config
   }) {
     const userJid =
       await getRpgJid({
@@ -47,43 +54,45 @@ export default {
         ? RPG_CLASSES[p.class]
         : null
 
-    const text =
-      `╭━━━━〔 📊 *RPG STATS* 〕━━━━╮\n` +
-      `│\n` +
-      `│ 🧬 ${
-        c
-          ? `${c.icon} *${c.name}*`
-          : '*No Class*'
-      }\n` +
-      `│ ⭐ Level : *${p.level}*\n` +
-      `│ ✨ EXP   : *${rpgNum(p.exp)}/${rpgNum(
-        getRpgRequiredExp(p.level)
-      )}*\n` +
-      `│\n` +
-      `├──────〔 ❤️ *STATUS* 〕──────\n` +
-      `│ ❤️ HP   : *${p.hp}/${p.maxHp}*\n` +
-      `│ 🔷 Mana : *${p.mana}/${p.maxMana}*\n` +
-      `│\n` +
-      `├──────〔 ⚔️ *COMBAT* 〕──────\n` +
-      `│ ⚔️ ATK\n` +
-      `│ Base ${stat.baseAttack} + Gear ${stat.gearAttack}\n` +
-      `│ = *${stat.totalAttack}*\n` +
-      `│\n` +
-      `│ 🛡 DEF\n` +
-      `│ Base ${stat.baseDefense} + Gear ${stat.gearDefense}\n` +
-      `│ = *${stat.totalDefense}*\n` +
-      `│\n` +
-      `├──────〔 💰 *WEALTH* 〕──────\n` +
-      `│ 💵 Wallet : *${rpgNum(p.money)}*\n` +
-      `│ 🏦 Bank   : *${rpgNum(p.bankMoney)}*\n` +
-      `│ 🚨 Wanted : *${p.wanted}*\n` +
-      `│\n` +
-      `╰━━━━━━━━━━━━━━━━━━━━━━━╯`
+    const body =
+      `${c?.icon || '🧬'} *${c?.name || 'No Class'}* • Lv.${p.level}\n` +
+      `✨ EXP ${rpgNum(p.exp)}/${rpgNum(getRpgRequiredExp(p.level))}\n\n` +
+      `❤️ ${rpgBar(p.hp, p.maxHp)} ${p.hp}/${p.maxHp}\n` +
+      `🔷 ${rpgBar(p.mana, p.maxMana)} ${p.mana}/${p.maxMana}\n\n` +
+      `⚔️ ATK  ${stat.baseAttack} + ${stat.gearAttack} gear = *${stat.totalAttack}*\n` +
+      `🛡 DEF  ${stat.baseDefense} + ${stat.gearDefense} gear = *${stat.totalDefense}*\n\n` +
+      `💵 Wallet *${rpgNum(p.money)}*  •  🏦 Bank *${rpgNum(p.bankMoney)}*\n` +
+      `🚨 Wanted *${p.wanted}/5*`
 
-    return sock.sendMessage(
+    return sendRpgQuickPanel({
+      sock,
+      msg,
       jid,
-      { text },
-      { quoted: msg }
-    )
+      title:
+        '📊 NEXA • RPG STATS',
+      body,
+      actions: [
+        {
+          text: '👤 Profile',
+          id: rpgCommand(config, 'rpg')
+        },
+        {
+          text: '🎒 Inventory',
+          id: rpgCommand(config, 'inventory')
+        },
+        {
+          text: '🌲 Adventure',
+          id: rpgCommand(config, 'adventure')
+        },
+        {
+          text: '🗺️ Region',
+          id: rpgCommand(config, 'region')
+        },
+        {
+          text: '⚔️ RPG Hub',
+          id: rpgCommand(config, 'menu', 'rpg')
+        }
+      ]
+    })
   }
 }

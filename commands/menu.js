@@ -14,6 +14,10 @@ import {
   resolveProfileJid
 } from '../lib/profile.js'
 
+import {
+  sendRpgHub
+} from '../lib/rpg/uxV2.js'
+
 // =====================================
 // PATH
 // =====================================
@@ -1017,6 +1021,23 @@ export default {
       )
 
     if (category) {
+      if (category === 'RPG') {
+        const userJid =
+          await resolveProfileJid(
+            sock,
+            msg,
+            jid
+          )
+
+        return sendRpgHub({
+          sock,
+          msg,
+          jid,
+          userJid,
+          config
+        })
+      }
+
       const text =
         buildCategoryMenu({
           botName,

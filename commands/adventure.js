@@ -10,6 +10,11 @@ import {
   resolveProfileJid
 } from '../lib/profile.js'
 
+import {
+  rpgCommand,
+  sendRpgQuickPanel
+} from '../lib/rpg/uxV2.js'
+
 export default {
   name: 'adventure',
   aliases: ['adv'],
@@ -20,7 +25,8 @@ export default {
   async run({
     sock,
     msg,
-    jid
+    jid,
+    config
   }) {
     const userJid =
       await resolveProfileJid(
@@ -34,46 +40,79 @@ export default {
         userJid
       )
 
-    const errors = {
-      NO_CLASS:
-        '🧬 Pilih Class dulu dengan *.class*.',
-
-      NO_HP:
-        '❤️ HP kamu habis.\nGunakan *.potion* atau nanti *.rest*.',
-
-      NO_RPG:
-        '⚔️ Buka profil RPG dulu dengan *.rpg*.'
-    }
-
     if (
       result.reason ===
       'ACTIVE_BATTLE'
     ) {
-      return sock.sendMessage(
+      return sendRpgQuickPanel({
+        sock,
+        msg,
         jid,
-        {
-          text:
-            `⚔️ Battle masih aktif 😭\n\n` +
-            `Gunakan *.battle* untuk memunculkan board baru.`
-        },
-        {
-          quoted: msg
-        }
-      )
+        title:
+          '⚔️ BATTLE MASIH AKTIF',
+        body:
+          'Lanjutkan battle yang sedang berjalan.',
+        actions: [
+          {
+            text: '⚔️ Battle Board',
+            id: rpgCommand(config, 'battle')
+          },
+          {
+            text: '⚔️ RPG Hub',
+            id: rpgCommand(config, 'menu', 'rpg')
+          }
+        ]
+      })
     }
 
     if (!result.success) {
-      return sock.sendMessage(
-        jid,
+      const errors = {
+        NO_CLASS:
+          '🧬 Pilih Class dulu.',
+        NO_HP:
+          '❤️ HP kamu habis. Pulihkan dulu.',
+        NO_RPG:
+          '⚔️ Buka profil RPG dulu.'
+      }
+
+      const actions = [
         {
-          text:
-            errors[result.reason] ||
-            '❌ Adventure gagal dimulai.'
-        },
-        {
-          quoted: msg
+          text: '⚔️ RPG Hub',
+          id: rpgCommand(config, 'menu', 'rpg')
         }
-      )
+      ]
+
+      if (result.reason === 'NO_CLASS') {
+        actions.unshift({
+          text: '🧬 Pilih Class',
+          id: rpgCommand(config, 'class')
+        })
+      }
+
+      if (result.reason === 'NO_HP') {
+        actions.unshift(
+          {
+            text: '🛏️ Rest',
+            id: rpgCommand(config, 'rest')
+          },
+          {
+            text: '🧪 Potion',
+            id: rpgCommand(config, 'potion')
+          }
+        )
+      }
+
+      return sendRpgQuickPanel({
+        sock,
+        msg,
+        jid,
+        title:
+          '🌲 ADVENTURE BELUM DIMULAI',
+        body:
+          errors[result.reason] ||
+          '❌ Adventure gagal dimulai.',
+        actions
+      })
     }
 
     await sendBattleBoard({

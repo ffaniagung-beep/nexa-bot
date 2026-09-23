@@ -6,6 +6,11 @@ import {
   resolveProfileJid
 } from '../lib/profile.js'
 
+import {
+  rpgCommand,
+  sendRpgQuickPanel
+} from '../lib/rpg/uxV2.js'
+
 function num(
   value
 ) {
@@ -64,7 +69,8 @@ export default {
   async run({
     sock,
     msg,
-    jid
+    jid,
+    config
   }) {
     const userJid =
       await resolveProfileJid(
@@ -90,32 +96,44 @@ export default {
         )
       )
 
-    return sock.sendMessage(
-      jid,
+    const body =
+      `${stars}\n` +
+      `Wanted *${r.wanted}/5*\n` +
+      `💵 Denda *${num(r.fine)} Money*\n` +
+      `⏳ Crime cooldown *${duration(r.globalCooldown)}*`
+
+    const actions = [
       {
-        text:
-          `╭━━━━〔 🚨 *WANTED STATUS* 〕━━━━╮\n` +
-          `│\n` +
-          `│ ${stars}\n` +
-          `│ Wanted: *${r.wanted}/5*\n` +
-          `│\n` +
-          `│ 💵 Denda bersih nama:\n` +
-          `│ *${num(r.fine)} Money*\n` +
-          `│\n` +
-          `│ 🧤 Crime cooldown:\n` +
-          `│ *${duration(r.globalCooldown)}*\n` +
-          `│\n` +
-          `╰━━━━━━━━━━━━━━━━━━━━━━━╯` +
-          (
-            r.wanted > 0
-              ? `\n\n💡 Gunakan *.payfine*`
-              : ''
-          )
+        text: '🏦 Bank',
+        id: rpgCommand(config, 'bank')
       },
       {
-        quoted:
-          msg
+        text: '👤 Profile',
+        id: rpgCommand(config, 'rpg')
+      },
+      {
+        text: '⚔️ RPG Hub',
+        id: rpgCommand(config, 'menu', 'rpg')
       }
-    )
+    ]
+
+    if (
+      r.wanted > 0
+    ) {
+      actions.unshift({
+        text: '💵 Bayar Denda',
+        id: rpgCommand(config, 'payfine')
+      })
+    }
+
+    return sendRpgQuickPanel({
+      sock,
+      msg,
+      jid,
+      title:
+        '🚨 NEXA • WANTED STATUS',
+      body,
+      actions
+    })
   }
 }

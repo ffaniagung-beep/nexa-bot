@@ -7,6 +7,11 @@ import {
   rpgNum
 } from '../lib/rpg/ui.js'
 
+import {
+  rpgCommand,
+  sendRpgQuickPanel
+} from '../lib/rpg/uxV2.js'
+
 export default {
   name: 'bank',
   aliases: [],
@@ -17,7 +22,8 @@ export default {
   async run({
     sock,
     msg,
-    jid
+    jid,
+    config
   }) {
     const userJid =
       await getRpgJid({
@@ -31,25 +37,42 @@ export default {
         userJid
       )
 
-    return sock.sendMessage(
+    const body =
+      `💵 Dompet *${rpgNum(p.money)}*\n` +
+      `🏦 Bank *${rpgNum(p.bankMoney)}*\n\n` +
+      `🔐 Money di Bank aman dari sistem pencurian RPG.\n\n` +
+      `Deposit: *${rpgCommand(config, 'bankdepo', '<nominal/all>')}*\n` +
+      `Withdraw: *${rpgCommand(config, 'bankwd', '<nominal/all>')}*`
+
+    return sendRpgQuickPanel({
+      sock,
+      msg,
       jid,
-      {
-        text:
-          `╭━━〔 🏦 *NEXA RPG BANK* 〕━━╮\n` +
-          `│\n` +
-          `│ 💵 Dompet : *${rpgNum(p.money)}*\n` +
-          `│ 🏦 Bank   : *${rpgNum(p.bankMoney)}*\n` +
-          `│\n` +
-          `│ 🔐 Money di Bank aman\n` +
-          `│ dari sistem pencurian RPG.\n` +
-          `│\n` +
-          `╰━━━━━━━━━━━━━━━━╯\n\n` +
-          `💵 *.bankdepo <nominal/all>*\n` +
-          `💸 *.bankwd <nominal/all>*`
-      },
-      {
-        quoted: msg
-      }
-    )
+      title:
+        '🏦 NEXA • RPG BANK',
+      body,
+      actions: [
+        {
+          text: '💵 Deposit',
+          id: rpgCommand(config, 'bankdepo')
+        },
+        {
+          text: '💸 Withdraw',
+          id: rpgCommand(config, 'bankwd')
+        },
+        {
+          text: '👤 Profile',
+          id: rpgCommand(config, 'rpg')
+        },
+        {
+          text: '🚨 Wanted',
+          id: rpgCommand(config, 'wanted')
+        },
+        {
+          text: '⚔️ RPG Hub',
+          id: rpgCommand(config, 'menu', 'rpg')
+        }
+      ]
+    })
   }
 }

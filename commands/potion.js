@@ -11,6 +11,11 @@ import {
   resolveProfileJid
 } from '../lib/profile.js'
 
+import {
+  rpgCommand,
+  sendRpgQuickPanel
+} from '../lib/rpg/uxV2.js'
+
 export default {
   name: 'potion',
   aliases: ['heal'],
@@ -22,7 +27,8 @@ export default {
     sock,
     msg,
     jid,
-    isOwner
+    isOwner,
+    config
   }) {
     const userJid =
       await resolveProfileJid(
@@ -61,42 +67,65 @@ export default {
         }
       )
 
-    const errors = {
-      FULL_HP:
-        '❤️ HP kamu sudah penuh.',
+    if (!result.success) {
+      const errors = {
+        FULL_HP:
+          '❤️ HP kamu sudah penuh.',
+        NO_POTION:
+          '🧪 Small Potion kamu habis.',
+        NO_RPG:
+          '❌ RPG profile belum ada.'
+      }
 
-      NO_POTION:
-        '🧪 Small Potion kamu habis 😭',
-
-      NO_RPG:
-        '❌ RPG profile belum ada.'
+      return sendRpgQuickPanel({
+        sock,
+        msg,
+        jid,
+        title:
+          '🧪 POTION',
+        body:
+          errors[result.reason] ||
+          '❌ Potion gagal digunakan.',
+        actions: [
+          {
+            text: '🎒 Inventory',
+            id: rpgCommand(config, 'inventory')
+          },
+          {
+            text: '🛒 Store',
+            id: rpgCommand(config, 'rpgshop')
+          },
+          {
+            text: '⚔️ RPG Hub',
+            id: rpgCommand(config, 'menu', 'rpg')
+          }
+        ]
+      })
     }
 
-    if (!result.success) {
-      return sock.sendMessage(
-        jid,
+    return sendRpgQuickPanel({
+      sock,
+      msg,
+      jid,
+      title:
+        '🧪 SMALL POTION',
+      body:
+        `❤️ +${result.healed} HP\n` +
+        `❤️ ${result.nextHp}/${result.maxHp}`,
+      actions: [
         {
-          text:
-            errors[result.reason] ||
-            '❌ Potion gagal digunakan.'
+          text: '🌲 Adventure',
+          id: rpgCommand(config, 'adventure')
         },
         {
-          quoted: msg
+          text: '🎒 Inventory',
+          id: rpgCommand(config, 'inventory')
+        },
+        {
+          text: '⚔️ RPG Hub',
+          id: rpgCommand(config, 'menu', 'rpg')
         }
-      )
-    }
-
-    return sock.sendMessage(
-      jid,
-      {
-        text:
-          `🧪 *SMALL POTION*\n\n` +
-          `❤️ +${result.healed} HP\n` +
-          `❤️ ${result.nextHp}/${result.maxHp}`
-      },
-      {
-        quoted: msg
-      }
-    )
+      ]
+    })
   }
 }

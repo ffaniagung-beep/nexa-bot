@@ -6,6 +6,11 @@ import {
   resolveProfileJid
 } from '../lib/profile.js'
 
+import {
+  rpgCommand,
+  sendRpgQuickPanel
+} from '../lib/rpg/uxV2.js'
+
 export default {
   name: 'battle',
   aliases: ['fight'],
@@ -16,7 +21,8 @@ export default {
   async run({
     sock,
     msg,
-    jid
+    jid,
+    config
   }) {
     const userJid =
       await resolveProfileJid(
@@ -37,17 +43,29 @@ export default {
       })
 
     if (!sent) {
-      return sock.sendMessage(
+      return sendRpgQuickPanel({
+        sock,
+        msg,
         jid,
-        {
-          text:
-            `🌲 Tidak ada battle aktif.\n\n` +
-            `Gunakan *.adventure*.`
-        },
-        {
-          quoted: msg
-        }
-      )
+        title:
+          '🌲 TIDAK ADA BATTLE',
+        body:
+          'Mulai encounter baru lewat Adventure.',
+        actions: [
+          {
+            text: '🌲 Adventure',
+            id: rpgCommand(config, 'adventure')
+          },
+          {
+            text: '🗺️ Region',
+            id: rpgCommand(config, 'region')
+          },
+          {
+            text: '⚔️ RPG Hub',
+            id: rpgCommand(config, 'menu', 'rpg')
+          }
+        ]
+      })
     }
   }
 }

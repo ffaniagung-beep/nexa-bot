@@ -7,6 +7,11 @@ import {
   resolveProfileJid
 } from '../lib/profile.js'
 
+import {
+  rpgCommand,
+  sendRpgQuickPanel
+} from '../lib/rpg/uxV2.js'
+
 function num(
   value
 ) {
@@ -65,7 +70,8 @@ export default {
     msg,
     jid,
     args,
-    isOwner
+    isOwner,
+    config
   }) {
     const userJid =
       await resolveProfileJid(
@@ -87,44 +93,44 @@ export default {
           userJid
         )
 
-      return sock.sendMessage(
+      const body =
+        `⚔️ Heist Power *${info.power}*\n` +
+        `⏳ Cooldown *${duration(info.cooldown)}*\n\n` +
+        `🏦 *CITY BANK* • Lv.5+ • Reward 1.500\n` +
+        `🏛️ *GRAND BANK* • Lv.10+ • Reward 5.000\n` +
+        `👑 *ROYAL BANK* • Lv.20+ • Reward 15.000\n\n` +
+        `Setiap percobaan nyata memberi cooldown *12 jam*.`
+
+      return sendRpgQuickPanel({
+        sock,
+        msg,
         jid,
-        {
-          text:
-            `╭━━━━〔 🏦 *BANK HEIST* 〕━━━━╮\n` +
-            `│\n` +
-            `│ ⚔️ Heist Power: *${info.power}*\n` +
-            `│ ⏳ Cooldown: *${duration(info.cooldown)}*\n` +
-            `│\n` +
-            `├────〔 🏦 *CITY BANK* 〕─────\n` +
-            `│ 🔒 RPG Lv.5+\n` +
-            `│ 💵 Reward: 1.500 Money\n` +
-            `│ 💸 Gagal: maks. 300 Money\n` +
-            `│ 🚨 Wanted +1\n` +
-            `│\n` +
-            `├────〔 🏛️ *GRAND BANK* 〕────\n` +
-            `│ 🔒 RPG Lv.10+\n` +
-            `│ 💵 Reward: 5.000 Money\n` +
-            `│ 💸 Gagal: maks. 1.000 Money\n` +
-            `│ 🚨 Wanted +2\n` +
-            `│\n` +
-            `├────〔 👑 *ROYAL BANK* 〕────\n` +
-            `│ 🔒 RPG Lv.20+\n` +
-            `│ 💵 Reward: 15.000 Money\n` +
-            `│ 💸 Gagal: maks. 3.000 Money\n` +
-            `│ 🚨 Wanted +3\n` +
-            `│\n` +
-            `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-            `Gunakan:\n` +
-            `*.rampokbank city*\n` +
-            `*.rampokbank grand*\n` +
-            `*.rampokbank royal*\n\n` +
-            `⏳ Setiap percobaan nyata memberi cooldown *12 jam*.`
-        },
-        {
-          quoted: msg
-        }
-      )
+        title:
+          '🏦 NEXA • BANK HEIST',
+        body,
+        actions: [
+          {
+            text: '🏦 City Bank',
+            id: rpgCommand(config, 'rampokbank', 'city')
+          },
+          {
+            text: '🏛️ Grand Bank',
+            id: rpgCommand(config, 'rampokbank', 'grand')
+          },
+          {
+            text: '👑 Royal Bank',
+            id: rpgCommand(config, 'rampokbank', 'royal')
+          },
+          {
+            text: '🚨 Wanted',
+            id: rpgCommand(config, 'wanted')
+          },
+          {
+            text: '⚔️ RPG Hub',
+            id: rpgCommand(config, 'menu', 'rpg')
+          }
+        ]
+      })
     }
 
     const r =
@@ -140,67 +146,96 @@ export default {
       r.reason ===
       'INVALID_TIER'
     ) {
-      return sock.sendMessage(
+      return sendRpgQuickPanel({
+        sock,
+        msg,
         jid,
-        {
-          text:
-            '❌ Tier: *city / grand / royal*.'
-        },
-        {
-          quoted: msg
-        }
-      )
+        title:
+          '❌ TIER TIDAK VALID',
+        body:
+          'Pilih *city / grand / royal*.',
+        actions: [
+          {
+            text: '🏦 Heist Menu',
+            id: rpgCommand(config, 'rampokbank')
+          }
+        ]
+      })
     }
 
     if (
       r.reason ===
       'LEVEL_LOW'
     ) {
-      return sock.sendMessage(
+      return sendRpgQuickPanel({
+        sock,
+        msg,
         jid,
-        {
-          text:
-            `${r.tier.icon} *${r.tier.name}*\n\n` +
-            `🔒 Butuh RPG *Lv.${r.required}+*.`
-        },
-        {
-          quoted: msg
-        }
-      )
+        title:
+          `${r.tier.icon} ${r.tier.name}`,
+        body:
+          `🔒 Butuh RPG *Lv.${r.required}+*.`,
+        actions: [
+          {
+            text: '👤 Profile',
+            id: rpgCommand(config, 'rpg')
+          },
+          {
+            text: '🏦 Heist Menu',
+            id: rpgCommand(config, 'rampokbank')
+          }
+        ]
+      })
     }
 
     if (
       r.reason ===
       'WANTED_MAX'
     ) {
-      return sock.sendMessage(
+      return sendRpgQuickPanel({
+        sock,
+        msg,
         jid,
-        {
-          text:
-            `🚨 Wanted lu sudah *5/5*.\n\n` +
-            `Beresin dulu dengan *.payfine*.`
-        },
-        {
-          quoted: msg
-        }
-      )
+        title:
+          '🚨 WANTED MAX',
+        body:
+          'Wanted lu sudah *5/5*. Beresin dulu sebelum heist lagi.',
+        actions: [
+          {
+            text: '💵 Bayar Denda',
+            id: rpgCommand(config, 'payfine')
+          },
+          {
+            text: '🚨 Wanted',
+            id: rpgCommand(config, 'wanted')
+          }
+        ]
+      })
     }
 
     if (
       r.reason ===
       'COOLDOWN'
     ) {
-      return sock.sendMessage(
+      return sendRpgQuickPanel({
+        sock,
+        msg,
         jid,
-        {
-          text:
-            `🏦 Security masih waspada 😭\n\n` +
-            `⏳ Heist berikutnya: *${duration(r.cooldown)}*`
-        },
-        {
-          quoted: msg
-        }
-      )
+        title:
+          '🏦 SECURITY ALERT',
+        body:
+          `Security masih waspada.\n⏳ Heist berikutnya *${duration(r.cooldown)}*`,
+        actions: [
+          {
+            text: '🏦 Heist Menu',
+            id: rpgCommand(config, 'rampokbank')
+          },
+          {
+            text: '⚔️ RPG Hub',
+            id: rpgCommand(config, 'menu', 'rpg')
+          }
+        ]
+      })
     }
 
     if (!r.success) {
@@ -216,58 +251,41 @@ export default {
       )
     }
 
-    if (
-      r.outcome ===
-      'SUCCESS'
-    ) {
-      return sock.sendMessage(
-        jid,
+    const body =
+      `${r.tier.icon} *${r.tier.name}*\n\n` +
+      `${r.scenario}\n\n` +
+      (
+        r.outcome === 'SUCCESS'
+          ? `💵 +${num(r.reward)} Money\n`
+          : `💸 Denda ${num(r.penalty)} Money\n`
+      ) +
+      `🚨 Wanted *${r.wanted}/5*\n` +
+      `💼 Wallet *${num(r.money)}*\n` +
+      `⏳ Cooldown *12 jam*`
+
+    return sendRpgQuickPanel({
+      sock,
+      msg,
+      jid,
+      title:
+        r.outcome === 'SUCCESS'
+          ? '✅ HEIST SUCCESS'
+          : '🚨 HEIST FAILED',
+      body,
+      actions: [
         {
-          text:
-            `╭━━━━〔 🏦 *HEIST SUCCESS* 〕━━━━╮\n` +
-            `│\n` +
-            `│ ${r.tier.icon} *${r.tier.name}*\n` +
-            `│\n` +
-            `│ ${r.scenario}\n` +
-            `│\n` +
-            `├──────〔 💰 *HASIL* 〕──────\n` +
-            `│ 💵 +${num(r.reward)} Money\n` +
-            `│ 🚨 Wanted: *${r.wanted}/5*\n` +
-            `│ 💼 Wallet: *${num(r.money)}*\n` +
-            `│\n` +
-            `│ ⏳ Cooldown: *12 jam*\n` +
-            `│\n` +
-            `╰━━━━━━━━━━━━━━━━━━━━━━━╯`
+          text: '🚨 Wanted',
+          id: rpgCommand(config, 'wanted')
         },
         {
-          quoted: msg
+          text: '🏦 RPG Bank',
+          id: rpgCommand(config, 'bank')
+        },
+        {
+          text: '⚔️ RPG Hub',
+          id: rpgCommand(config, 'menu', 'rpg')
         }
-      )
-    }
-
-    return sock.sendMessage(
-      jid,
-      {
-        text:
-          `╭━━━━〔 🚨 *HEIST FAILED* 〕━━━━╮\n` +
-          `│\n` +
-          `│ ${r.tier.icon} *${r.tier.name}*\n` +
-          `│\n` +
-          `│ ${r.scenario}\n` +
-          `│\n` +
-          `│ ⚔️ Heist Power: *${r.power}*\n` +
-          `│ 💸 Denda: *${num(r.penalty)} Money*\n` +
-          `│ 🚨 Wanted: *${r.wanted}/5*\n` +
-          `│ 💼 Wallet: *${num(r.money)}*\n` +
-          `│\n` +
-          `│ 🏦 Bank pribadi tetap aman 🔐\n` +
-          `│ ⏳ Cooldown: *12 jam*\n` +
-          `│\n` +
-          `╰━━━━━━━━━━━━━━━━━━━━━━━╯`
-      },
-      {
-        quoted: msg
-      }
-    )
+      ]
+    })
   }
 }

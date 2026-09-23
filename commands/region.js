@@ -11,6 +11,11 @@ import {
   getRpgMonsterPool
 } from '../lib/rpg/monsters.js'
 
+import {
+  rpgCommand,
+  sendRpgQuickPanel
+} from '../lib/rpg/uxV2.js'
+
 function typeIcon(
   type
 ) {
@@ -47,7 +52,8 @@ export default {
   async run({
     sock,
     msg,
-    jid
+    jid,
+    config
   }) {
     const userJid =
       await getRpgJid({
@@ -71,44 +77,52 @@ export default {
         profile.level
       )
 
-    const list =
-      monsters
-        .map(
-          monster =>
-            `│ ${monster.icon} *${monster.name}*\n` +
-            `│    ${typeIcon(monster.type)} ${monster.type}`
-        )
-        .join(
-          '\n│\n'
-        )
-
     const maxLevel =
       region.maxLevel >= 999
         ? '∞'
         : region.maxLevel
 
-    const text =
-      `╭━━━━〔 🗺️ *RPG REGION* 〕━━━━╮\n` +
-      `│\n` +
-      `│ ${region.icon} *${region.name}*\n` +
-      `│ ⭐ Area Lv.${region.minLevel}-${maxLevel}\n` +
-      `│ 👤 RPG Level: *${profile.level}*\n` +
-      `│\n` +
-      `├────〔 👾 *ENCOUNTERS* 〕────\n` +
-      `${list}\n` +
-      `│\n` +
-      `╰━━━━━━━━━━━━━━━━━━━━━━━╯\n\n` +
-      `🌲 Gunakan *.adventure* untuk menjelajah.`
+    const encounters =
+      monsters
+        .map(
+          monster =>
+            `${monster.icon} *${monster.name}* • ` +
+            `${typeIcon(monster.type)} ${monster.type}`
+        )
+        .join('\n')
 
-    return sock.sendMessage(
+    const body =
+      `${region.icon} *${region.name}*\n` +
+      `⭐ Area Lv.${region.minLevel}-${maxLevel}\n` +
+      `👤 RPG Level *${profile.level}*\n\n` +
+      `*ENCOUNTERS*\n${encounters}\n\n` +
+      `🌲 Adventure memilih encounter dari region aktif.`
+
+    return sendRpgQuickPanel({
+      sock,
+      msg,
       jid,
-      {
-        text
-      },
-      {
-        quoted:
-          msg
-      }
-    )
+      title:
+        '🗺️ NEXA • RPG REGION',
+      body,
+      actions: [
+        {
+          text: '🌲 Adventure',
+          id: rpgCommand(config, 'adventure')
+        },
+        {
+          text: '⚔️ Battle',
+          id: rpgCommand(config, 'battle')
+        },
+        {
+          text: '👤 Profile',
+          id: rpgCommand(config, 'rpg')
+        },
+        {
+          text: '⚔️ RPG Hub',
+          id: rpgCommand(config, 'menu', 'rpg')
+        }
+      ]
+    })
   }
 }

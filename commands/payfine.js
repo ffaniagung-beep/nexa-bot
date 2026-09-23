@@ -6,6 +6,11 @@ import {
   resolveProfileJid
 } from '../lib/profile.js'
 
+import {
+  rpgCommand,
+  sendRpgQuickPanel
+} from '../lib/rpg/uxV2.js'
+
 function num(
   value
 ) {
@@ -36,7 +41,8 @@ export default {
   async run({
     sock,
     msg,
-    jid
+    jid,
+    config
   }) {
     const userJid =
       await resolveProfileJid(
@@ -54,39 +60,53 @@ export default {
       r.reason ===
       'NO_WANTED'
     ) {
-      return sock.sendMessage(
+      return sendRpgQuickPanel({
+        sock,
+        msg,
         jid,
-        {
-          text:
-            `😇 Wanted kamu sudah *0/5*.\n` +
-            `Belum perlu bayar apa-apa.`
-        },
-        {
-          quoted:
-            msg
-        }
-      )
+        title:
+          '😇 NAMA SUDAH BERSIH',
+        body:
+          'Wanted kamu sudah *0/5*. Belum perlu bayar apa-apa.',
+        actions: [
+          {
+            text: '🚨 Wanted',
+            id: rpgCommand(config, 'wanted')
+          },
+          {
+            text: '⚔️ RPG Hub',
+            id: rpgCommand(config, 'menu', 'rpg')
+          }
+        ]
+      })
     }
 
     if (
       r.reason ===
       'MONEY_LOW'
     ) {
-      return sock.sendMessage(
+      return sendRpgQuickPanel({
+        sock,
+        msg,
         jid,
-        {
-          text:
-            `💸 Money di dompet kurang.\n\n` +
-            `Denda: *${num(r.fine)}*\n` +
-            `Wallet: *${num(r.money)}*\n` +
-            `Kurang: *${num(r.missing)}*\n\n` +
-            `🏦 Uang Bank tidak ditarik otomatis.`
-        },
-        {
-          quoted:
-            msg
-        }
-      )
+        title:
+          '💸 MONEY KURANG',
+        body:
+          `Denda *${num(r.fine)}*\n` +
+          `Wallet *${num(r.money)}*\n` +
+          `Kurang *${num(r.missing)}*\n\n` +
+          `🏦 Uang Bank tidak ditarik otomatis.`,
+        actions: [
+          {
+            text: '🏦 Bank',
+            id: rpgCommand(config, 'bank')
+          },
+          {
+            text: '🚨 Wanted',
+            id: rpgCommand(config, 'wanted')
+          }
+        ]
+      })
     }
 
     if (!r.success) {
@@ -103,24 +123,31 @@ export default {
       )
     }
 
-    return sock.sendMessage(
+    return sendRpgQuickPanel({
+      sock,
+      msg,
       jid,
-      {
-        text:
-          `╭━━〔 ✅ *DENDA DIBAYAR* 〕━━╮\n` +
-          `│\n` +
-          `│ 🚨 Wanted: *${r.oldWanted}/5 → 0/5*\n` +
-          `│ 💵 Dibayar: *${num(r.paid)} Money*\n` +
-          `│ 💼 Sisa: *${num(r.money)}*\n` +
-          `│\n` +
-          `│ Nama lu bersih lagi 😇\n` +
-          `│\n` +
-          `╰━━━━━━━━━━━━━━━━╯`
-      },
-      {
-        quoted:
-          msg
-      }
-    )
+      title:
+        '✅ DENDA DIBAYAR',
+      body:
+        `🚨 Wanted *${r.oldWanted}/5 → 0/5*\n` +
+        `💵 Dibayar *${num(r.paid)} Money*\n` +
+        `💼 Sisa *${num(r.money)}*\n\n` +
+        `Nama lu bersih lagi 😇`,
+      actions: [
+        {
+          text: '🚨 Wanted',
+          id: rpgCommand(config, 'wanted')
+        },
+        {
+          text: '🏦 Bank',
+          id: rpgCommand(config, 'bank')
+        },
+        {
+          text: '⚔️ RPG Hub',
+          id: rpgCommand(config, 'menu', 'rpg')
+        }
+      ]
+    })
   }
 }

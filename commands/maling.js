@@ -103,7 +103,9 @@ export default {
         jid,
         {
           text:
-            `☠️ *MALING RPG*\n\n` +
+            `✦ *NEXA • CRIME RPG*\n` +
+            `━━━━━━━━━━━━━━━━━━\n` +
+            `🧤 *Maling*\n\n` +
             `Mention target:\n` +
             `*.maling @user*\n\n` +
             `Atau reply pesan target:\n` +
@@ -219,7 +221,8 @@ export default {
         jid,
         {
           text:
-            `╭━━━━〔 🧤 *MALING BERHASIL* 〕━━━━╮\n` +
+            `✦ *NEXA • MALING BERHASIL*\n` +
+            `━━━━━━━━━━━━━━━━━━\n` +
             `│\n` +
             `│ 🎯 Target: ${mention}\n` +
             `│\n` +
@@ -248,7 +251,8 @@ export default {
       jid,
       {
         text:
-          `╭━━━━〔 🚨 *MALING GAGAL* 〕━━━━╮\n` +
+          `✦ *NEXA • MALING GAGAL*\n` +
+          `━━━━━━━━━━━━━━━━━━\n` +
           `│\n` +
           `│ 🎯 Target: ${mention}\n` +
           `│\n` +
