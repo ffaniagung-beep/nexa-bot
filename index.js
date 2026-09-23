@@ -38,6 +38,8 @@ import {
   resetWarning
 } from './lib/groupdb.js'
 
+import { isGroupCommandDisabled } from './lib/groupCommandControl.js'
+
 import {
   getBotDB
 } from './lib/botdb.js'
@@ -3004,6 +3006,35 @@ async function startBotInner() {
           ) {
             continue
           }
+          // =================================
+          // GROUP COMMAND CONTROL V1
+          // Owner selalu bypass.
+          // =================================
+          if (
+            jid.endsWith('@g.us') &&
+            !isOwner &&
+            isGroupCommandDisabled(
+              jid,
+              command.name
+            )
+          ) {
+            await sock.sendMessage(
+              jid,
+              {
+                text:
+                  `✦ *NEXA • COMMAND CONTROL*\n\n` +
+                  `🚫 Command \`${String(command.name).toLowerCase()}\` sedang dinonaktifkan oleh admin di grup ini.\n\n` +
+                  `👑 Owner tetap dapat menggunakan command ini.`
+              },
+              {
+                quoted: msg
+              }
+            )
+
+            continue
+          }
+
+
 
           // =================================
           // LIMIT GATE
