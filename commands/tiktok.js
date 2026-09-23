@@ -2560,7 +2560,10 @@ export default {
   name:
     'tiktok',
 
-  aliases: [],
+  aliases: [
+    'tt',
+    'ttdl'
+  ],
 
   category:
     'DOWNLOADER',
