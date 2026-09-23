@@ -1,3 +1,16 @@
+// NEXA_TIKTOK_BUTTON_V2
+import {
+  Button
+} from '@rexxhayanasi/elaina-baileys'
+
+import {
+  randomBytes
+} from 'node:crypto'
+
+import {
+  getProfileJid
+} from '../lib/profile.js'
+
 import * as cheerio from 'cheerio'
 
 const MDOWN_ORIGIN =
@@ -595,6 +608,309 @@ async function tryConvertPage({
   return null
 }
 
+const TIKTOK_SESSION_TTL =
+  10 * 60 * 1000
+
+const tiktokSessions =
+  new Map()
+
+const tiktokDownloadLocks =
+  new Set()
+
+function tiktokOwnerKey(
+  msg,
+  jid
+) {
+  return String(
+    getProfileJid(
+      msg,
+      jid
+    ) ||
+    msg?.key?.participantAlt ||
+    msg?.key?.participant ||
+    jid ||
+    ''
+  )
+    .trim()
+    .toLowerCase()
+}
+
+function cleanupTikTokSessions() {
+  const now =
+    Date.now()
+
+  for (
+    const [id, session]
+    of tiktokSessions
+  ) {
+    if (
+      now - session.createdAt >
+        TIKTOK_SESSION_TTL
+    ) {
+      tiktokSessions.delete(id)
+    }
+  }
+}
+
+function makeTikTokSession({
+  owner,
+  result,
+  prefix
+}) {
+  cleanupTikTokSessions()
+
+  let id
+
+  do {
+    id =
+      randomBytes(5)
+        .toString('hex')
+  } while (
+    tiktokSessions.has(id)
+  )
+
+  const session = {
+    id,
+    owner,
+    result,
+    downloads:
+      result.downloads,
+    prefix,
+    createdAt:
+      Date.now()
+  }
+
+  tiktokSessions.set(
+    id,
+    session
+  )
+
+  return session
+}
+
+function getTikTokSession({
+  id,
+  owner
+}) {
+  cleanupTikTokSessions()
+
+  const session =
+    tiktokSessions.get(
+      String(id || '')
+    )
+
+  if (
+    !session ||
+    session.owner !== owner
+  ) {
+    return null
+  }
+
+  return session
+}
+
+function looksAudio(
+  item
+) {
+  const text =
+    String(item?.text || '')
+      .toLowerCase()
+
+  const url =
+    String(item?.url || '')
+      .toLowerCase()
+
+  return (
+    /mp3|audio|music|sound/.test(
+      text
+    ) ||
+    /\.mp3(?:$|[?#])/.test(
+      url
+    )
+  )
+}
+
+function looksHd(
+  item
+) {
+  const text =
+    String(item?.text || '')
+      .toLowerCase()
+
+  return (
+    /\bhd\b|hd\+|full[ -]?hd|high[ -]?quality|1080p|720p/.test(
+      text
+    )
+  )
+}
+
+function looksVideo(
+  item
+) {
+  const text =
+    String(item?.text || '')
+      .toLowerCase()
+
+  const url =
+    String(item?.url || '')
+      .toLowerCase()
+
+  return (
+    /mp4|video|without watermark|no watermark|tanpa watermark/.test(
+      text
+    ) ||
+    /\.(?:mp4|m4v|mov)(?:$|[?#])/.test(
+      url
+    )
+  )
+}
+
+function uniqueLinks(
+  links
+) {
+  const seen =
+    new Set()
+
+  return (
+    Array.isArray(links)
+      ? links
+      : []
+  ).filter(item => {
+    if (
+      !item?.url ||
+      seen.has(item.url)
+    ) {
+      return false
+    }
+
+    seen.add(item.url)
+    return true
+  })
+}
+
+function bestLink(
+  items
+) {
+  return [...items]
+    .sort((a, b) =>
+      Number(b?.score || 0) -
+      Number(a?.score || 0)
+    )[0] || null
+}
+
+function selectTikTokDownloads(
+  links,
+  fallbackVideoUrl = null
+) {
+  const items =
+    uniqueLinks(links)
+      .filter(item =>
+        httpUrl(item?.url)
+      )
+
+  const audio =
+    bestLink(
+      items.filter(
+        looksAudio
+      )
+    )
+
+  const videoItems =
+    items.filter(item =>
+      !looksAudio(item)
+    )
+
+  const hd =
+    bestLink(
+      videoItems.filter(
+        looksHd
+      )
+    )
+
+  let normal =
+    bestLink(
+      videoItems.filter(item =>
+        !looksHd(item) &&
+        looksVideo(item)
+      )
+    )
+
+  if (!normal) {
+    normal =
+      bestLink(
+        videoItems.filter(item =>
+          item?.url !== hd?.url &&
+          Number(item?.score || 0) >= 8
+        )
+      )
+  }
+
+  if (
+    !normal &&
+    httpUrl(fallbackVideoUrl) &&
+    fallbackVideoUrl !== hd?.url
+  ) {
+    normal = {
+      url:
+        fallbackVideoUrl,
+      text:
+        'video',
+      score:
+        1
+    }
+  }
+
+  if (
+    !hd &&
+    !normal &&
+    httpUrl(fallbackVideoUrl)
+  ) {
+    normal = {
+      url:
+        fallbackVideoUrl,
+      text:
+        'video',
+      score:
+        1
+    }
+  }
+
+  return {
+    normal:
+      normal
+        ? {
+            url:
+              normal.url,
+            label:
+              normal.text ||
+              'video'
+          }
+        : null,
+
+    hd:
+      hd
+        ? {
+            url:
+              hd.url,
+            label:
+              hd.text ||
+              'hd'
+          }
+        : null,
+
+    audio:
+      audio
+        ? {
+            url:
+              audio.url,
+            label:
+              audio.text ||
+              'mp3'
+          }
+        : null
+  }
+}
+
 async function fetchTikTok(url) {
   const controller =
     new AbortController()
@@ -648,7 +964,9 @@ async function fetchTikTok(url) {
 
       homeResponse = response
       homeHtml = html
-      homeUrl = response.url || candidateUrl
+      homeUrl =
+        response.url ||
+        candidateUrl
       break
     }
 
@@ -681,7 +999,8 @@ async function fetchTikTok(url) {
               cookie,
               form: true
             }),
-          body: form.toString(),
+          body:
+            form.toString(),
           signal:
             controller.signal
         }
@@ -705,7 +1024,11 @@ async function fetchTikTok(url) {
       response.url ||
       MDOWN_DOWNLOAD
 
-    if (/\/err(?:\/|\?|$)/i.test(finalUrl)) {
+    if (
+      /\/err(?:\/|\?|$)/i.test(
+        finalUrl
+      )
+    ) {
       throw new Error(
         'MDOWN_REJECTED'
       )
@@ -723,27 +1046,26 @@ async function fetchTikTok(url) {
           controller.signal
       })
 
-    if (converted) {
-      return {
-        raw: html,
-        videoUrl: converted,
-        author: '',
-        description: '',
-        thumbnail: null,
-        views: null,
-        likes: null
-      }
-    }
-
     const parsed =
       parseMdownResult(
         html,
         finalUrl
       )
 
-    if (!parsed.videoUrl) {
+    const downloads =
+      selectTikTokDownloads(
+        parsed.links,
+        converted ||
+        parsed.videoUrl
+      )
+
+    if (
+      !downloads.normal &&
+      !downloads.hd &&
+      !downloads.audio
+    ) {
       console.error(
-        '[TIKTOK] MusicalDown tidak menemukan link video. finalUrl=',
+        '[TIKTOK] MusicalDown tidak menemukan media. finalUrl=',
         finalUrl,
         ' html=',
         html.slice(0, 5000)
@@ -756,16 +1078,16 @@ async function fetchTikTok(url) {
 
     return {
       raw: html,
-      videoUrl:
-        parsed.videoUrl,
       author:
-        parsed.author,
+        parsed.author || '',
       description:
-        parsed.title,
+        parsed.title || '',
       thumbnail:
-        parsed.thumbnail,
+        parsed.thumbnail || null,
       views: null,
-      likes: null
+      likes: null,
+      comments: null,
+      downloads
     }
   } catch (error) {
     if (
@@ -783,14 +1105,16 @@ async function fetchTikTok(url) {
   }
 }
 
-async function downloadVideo(url) {
+async function downloadTikTokMedia(
+  url
+) {
   const controller =
     new AbortController()
 
   const timeout =
     setTimeout(
       () => controller.abort(),
-      60_000
+      90_000
     )
 
   try {
@@ -800,7 +1124,8 @@ async function downloadVideo(url) {
         {
           redirect: 'follow',
           headers: {
-            'User-Agent': USER_AGENT,
+            'User-Agent':
+              USER_AGENT,
             Referer:
               'https://musicaldown.com/'
           },
@@ -815,7 +1140,7 @@ async function downloadVideo(url) {
       )
     }
 
-    const type =
+    const contentType =
       String(
         response.headers.get(
           'content-type'
@@ -823,11 +1148,15 @@ async function downloadVideo(url) {
       ).toLowerCase()
 
     if (
-      type.includes('text/html') ||
-      type.includes('application/json')
+      contentType.includes(
+        'text/html'
+      ) ||
+      contentType.includes(
+        'application/json'
+      )
     ) {
       throw new Error(
-        'MEDIA_NOT_VIDEO'
+        'MEDIA_NOT_FILE'
       )
     }
 
@@ -868,7 +1197,12 @@ async function downloadVideo(url) {
       )
     }
 
-    return buffer
+    return {
+      buffer,
+      contentType,
+      size:
+        buffer.length
+    }
   } catch (error) {
     if (
       error?.name ===
@@ -914,6 +1248,14 @@ function makeCaption(result) {
     )
   }
 
+  if (
+    result.comments !== null
+  ) {
+    stats.push(
+      `💬 ${compactNumber(result.comments)}`
+    )
+  }
+
   if (stats.length) {
     lines.push(
       stats.join('   ·   ')
@@ -930,6 +1272,474 @@ function makeCaption(result) {
   return lines.join('\n')
 }
 
+function buttonActionId(
+  prefix,
+  sessionId,
+  action
+) {
+  return (
+    `${prefix}tiktok ` +
+    `__download ` +
+    `${sessionId} ` +
+    `${action}`
+  )
+}
+
+function makePanelBody(
+  result
+) {
+  const lines = []
+
+  if (result.author) {
+    lines.push(
+      `👤 @${result.author}`
+    )
+  } else {
+    lines.push(
+      '👤 Creator terdeteksi'
+    )
+  }
+
+  const stats = []
+
+  if (
+    result.likes !== null
+  ) {
+    stats.push(
+      `♥ ${compactNumber(result.likes)}`
+    )
+  }
+
+  if (
+    result.comments !== null
+  ) {
+    stats.push(
+      `💬 ${compactNumber(result.comments)}`
+    )
+  }
+
+  if (stats.length) {
+    lines.push(
+      stats.join('  •  ')
+    )
+  }
+
+  lines.push('')
+
+  const hasNormal =
+    Boolean(
+      result.downloads?.normal
+    )
+
+  const hasHd =
+    Boolean(
+      result.downloads?.hd
+    )
+
+  if (
+    hasNormal &&
+    hasHd
+  ) {
+    lines.push(
+      '✨ *Standard + HD tersedia.*',
+      'Rekomendasi: pilih *Video HD* untuk kualitas tertinggi.'
+    )
+  } else if (hasHd) {
+    lines.push(
+      '✨ *Kualitas terdeteksi: HD.*',
+      'Rekomendasi: pilih *Video HD*.'
+    )
+  } else if (hasNormal) {
+    lines.push(
+      '🎬 *Kualitas terdeteksi: Standard.*'
+    )
+  } else {
+    lines.push(
+      '🎵 Audio tersedia.'
+    )
+  }
+
+  if (hasHd) {
+    lines.push(
+      '',
+      '📄 Video HD dikirim sebagai dokumen MP4 agar file aslinya tidak dipaksa menjadi video inline WhatsApp.'
+    )
+  }
+
+  lines.push(
+    '',
+    'Pilih format yang ingin diunduh:'
+  )
+
+  return lines.join('\n')
+}
+
+async function sendTikTokPanel({
+  sock,
+  msg,
+  jid,
+  session
+}) {
+  const result =
+    session.result
+
+  let panel =
+    new Button(sock)
+      .setTitle(
+        'NEXA • TIKTOK DOWNLOADER'
+      )
+      .setBody(
+        makePanelBody(
+          result
+        )
+      )
+      .setFooter(
+        'Pilihan berlaku 10 menit'
+      )
+
+  if (
+    session.downloads?.normal
+  ) {
+    panel =
+      panel.addReply(
+        '🎬 Video',
+        buttonActionId(
+          session.prefix,
+          session.id,
+          'normal'
+        )
+      )
+  }
+
+  if (
+    session.downloads?.hd
+  ) {
+    panel =
+      panel.addReply(
+        '✨ Video HD',
+        buttonActionId(
+          session.prefix,
+          session.id,
+          'hd'
+        )
+      )
+  }
+
+  if (
+    session.downloads?.audio
+  ) {
+    panel =
+      panel.addReply(
+        '🎵 MP3',
+        buttonActionId(
+          session.prefix,
+          session.id,
+          'audio'
+        )
+      )
+  }
+
+  try {
+    await panel.send(jid)
+    return
+  } catch (error) {
+    console.warn(
+      '[TIKTOK] Button fallback:',
+      error?.message ||
+      error
+    )
+  }
+
+  const lines = [
+    '✦ *NEXA • TIKTOK DOWNLOADER*',
+    '',
+    makePanelBody(result),
+    '',
+    'Button tidak tersedia di client ini. Jalankan salah satu command berikut:'
+  ]
+
+  if (
+    session.downloads?.normal
+  ) {
+    lines.push(
+      `• ${buttonActionId(session.prefix, session.id, 'normal')}`
+    )
+  }
+
+  if (
+    session.downloads?.hd
+  ) {
+    lines.push(
+      `• ${buttonActionId(session.prefix, session.id, 'hd')}`
+    )
+  }
+
+  if (
+    session.downloads?.audio
+  ) {
+    lines.push(
+      `• ${buttonActionId(session.prefix, session.id, 'audio')}`
+    )
+  }
+
+  await sock.sendMessage(
+    jid,
+    {
+      text:
+        lines.join('\n')
+    },
+    {
+      quoted: msg
+    }
+  )
+}
+
+function tiktokFileName(
+  kind,
+  session
+) {
+  const id =
+    cleanText(
+      session?.id,
+      20
+    ) ||
+    'nexa'
+
+  if (kind === 'audio') {
+    return (
+      `TikTok-Audio-${id}.mp3`
+    )
+  }
+
+  if (kind === 'hd') {
+    return (
+      `TikTok-HD-${id}.mp4`
+    )
+  }
+
+  return (
+    `TikTok-${id}.mp4`
+  )
+}
+
+async function deliverTikTokChoice({
+  sock,
+  msg,
+  jid,
+  session,
+  action
+}) {
+  const selected =
+    session.downloads?.[action]
+
+  if (!selected?.url) {
+    throw new Error(
+      'TIKTOK_OPTION_UNAVAILABLE'
+    )
+  }
+
+  const lockKey =
+    `${session.owner}:${session.id}`
+
+  if (
+    tiktokDownloadLocks.has(
+      lockKey
+    )
+  ) {
+    await sock.sendMessage(
+      jid,
+      {
+        text:
+          '✦ *NEXA • TIKTOK*\n\n' +
+          '⏳ File ini masih diproses. Tunggu sampai selesai.'
+      },
+      {
+        quoted: msg
+      }
+    )
+
+    return
+  }
+
+  tiktokDownloadLocks.add(
+    lockKey
+  )
+
+  try {
+    const label =
+      action === 'hd'
+        ? 'Video HD'
+        : action === 'audio'
+          ? 'MP3'
+          : 'Video'
+
+    await sock.sendMessage(
+      jid,
+      {
+        text:
+          `✦ *NEXA • TIKTOK*\n\n` +
+          `⏳ Menyiapkan *${label}*...`
+      },
+      {
+        quoted: msg
+      }
+    )
+
+    const downloaded =
+      await downloadTikTokMedia(
+        selected.url
+      )
+
+    if (action === 'hd') {
+      await sock.sendMessage(
+        jid,
+        {
+          document:
+            downloaded.buffer,
+          mimetype:
+            'video/mp4',
+          fileName:
+            tiktokFileName(
+              action,
+              session
+            ),
+          caption:
+            `${makeCaption(session.result)}\n\n` +
+            `✨ *Video HD* • dikirim sebagai dokumen MP4.`
+        },
+        {
+          quoted: msg,
+          mediaUploadTimeoutMs:
+            120_000
+        }
+      )
+    } else if (
+      action === 'audio'
+    ) {
+      await sock.sendMessage(
+        jid,
+        {
+          audio:
+            downloaded.buffer,
+          mimetype:
+            'audio/mpeg',
+          ptt: false
+        },
+        {
+          quoted: msg,
+          mediaUploadTimeoutMs:
+            120_000
+        }
+      )
+    } else {
+      await sock.sendMessage(
+        jid,
+        {
+          video:
+            downloaded.buffer,
+          mimetype:
+            'video/mp4',
+          caption:
+            makeCaption(
+              session.result
+            )
+        },
+        {
+          quoted: msg,
+          mediaUploadTimeoutMs:
+            120_000
+        }
+      )
+    }
+
+    console.log(
+      '✅ TikTok via MusicalDown:',
+      action,
+      session.result.author ||
+      'unknown'
+    )
+  } finally {
+    tiktokDownloadLocks.delete(
+      lockKey
+    )
+  }
+}
+
+function tiktokErrorText(
+  error,
+  prefix = '.'
+) {
+  const code =
+    String(
+      error?.message ||
+      ''
+    )
+
+  if (
+    code ===
+    'TIKTOK_SESSION_EXPIRED'
+  ) {
+    return (
+      'Pilihan download sudah kedaluwarsa.\n' +
+      `Kirim ulang *${prefix}tiktok <url>*.`
+    )
+  }
+
+  if (
+    code ===
+    'TIKTOK_OPTION_UNAVAILABLE'
+  ) {
+    return (
+      'Format itu tidak tersedia untuk video ini. Kirim ulang link lalu pilih tombol yang tersedia.'
+    )
+  }
+
+  if (
+    code ===
+    'VIDEO_TOO_LARGE'
+  ) {
+    return (
+      'File terlalu besar untuk dikirim oleh NEXA.'
+    )
+  }
+
+  if (
+    code ===
+      'MDOWN_TIMEOUT' ||
+    code ===
+      'MEDIA_TIMEOUT'
+  ) {
+    return (
+      'MusicalDown terlalu lama merespons. Coba lagi sebentar.'
+    )
+  }
+
+  if (
+    /^MDOWN_HOME_HTTP_/.test(
+      code
+    )
+  ) {
+    return (
+      'MusicalDown menolak koneksi dari server NEXA saat ini.'
+    )
+  }
+
+  if (
+    code ===
+      'MDOWN_FORM_CHANGED' ||
+    code ===
+      'MDOWN_NO_VIDEO'
+  ) {
+    return (
+      'Format halaman MusicalDown sedang berubah atau media tidak ditemukan.'
+    )
+  }
+
+  return (
+    'Media belum berhasil diproses. Coba lagi beberapa saat nanti.'
+  )
+}
+
 export default {
   name:
     'tiktok',
@@ -943,7 +1753,7 @@ export default {
     'DOWNLOADER',
 
   description:
-    'Download video TikTok',
+    'Download TikTok via tombol Video / HD / MP3',
 
   usage:
     '.tiktok <url>',
@@ -955,38 +1765,109 @@ export default {
     args,
     config
   }) {
-    const url =
-      args[0]
+    const prefix =
+      config?.prefix ||
+      '.'
 
-    if (
-      !url ||
-      !isTikTokUrl(url)
-    ) {
-      await sock.sendMessage(
-        jid,
-        {
-          text:
-            `✦ *NEXA • TIKTOK*\n\n` +
-            `Kirim link TikTok yang valid.\n` +
-            `Contoh:\n` +
-            `${config.prefix}tiktok https://vt.tiktok.com/...`
-        },
-        {
-          quoted: msg
-        }
+    const owner =
+      tiktokOwnerKey(
+        msg,
+        jid
       )
 
-      return
-    }
+    const first =
+      String(
+        args?.[0] ||
+        ''
+      )
+        .trim()
+        .toLowerCase()
 
     try {
+      if (
+        first ===
+        '__download'
+      ) {
+        const session =
+          getTikTokSession({
+            id:
+              args?.[1],
+            owner
+          })
+
+        if (!session) {
+          throw new Error(
+            'TIKTOK_SESSION_EXPIRED'
+          )
+        }
+
+        const action =
+          String(
+            args?.[2] ||
+            ''
+          )
+            .trim()
+            .toLowerCase()
+
+        if (
+          ![
+            'normal',
+            'hd',
+            'audio'
+          ].includes(action)
+        ) {
+          throw new Error(
+            'TIKTOK_OPTION_UNAVAILABLE'
+          )
+        }
+
+        await deliverTikTokChoice({
+          sock,
+          msg,
+          jid,
+          session,
+          action
+        })
+
+        return
+      }
+
+      const url =
+        args?.[0]
+
+      if (
+        !url ||
+        !isTikTokUrl(url)
+      ) {
+        await sock.sendMessage(
+          jid,
+          {
+            text:
+              `✦ *NEXA • TIKTOK*\n\n` +
+              `Kirim link TikTok yang valid.\n` +
+              `Contoh:\n` +
+              `${prefix}tiktok https://vt.tiktok.com/...`
+          },
+          {
+            quoted: msg
+          }
+        )
+
+        return
+      }
+
+      if (!owner) {
+        return
+      }
+
+      cleanupTikTokSessions()
+
       await sock.sendMessage(
         jid,
         {
           text:
             '✦ *NEXA • TIKTOK*\n\n' +
-            '⏳ Video sedang disiapkan...\n' +
-            'NEXA sedang mengunduh video TikTok. Mohon tunggu sebentar.'
+            '⏳ Menganalisis video dan pilihan kualitas...'
         },
         {
           quoted: msg
@@ -998,86 +1879,35 @@ export default {
           url
         )
 
-      const video =
-        await downloadVideo(
-          result.videoUrl
-        )
+      const session =
+        makeTikTokSession({
+          owner,
+          result,
+          prefix
+        })
 
-      await sock.sendMessage(
+      await sendTikTokPanel({
+        sock,
+        msg,
         jid,
-        {
-          video,
-
-          mimetype:
-            'video/mp4',
-
-          caption:
-            makeCaption(
-              result
-            )
-        },
-        {
-          quoted: msg,
-
-          mediaUploadTimeoutMs:
-            60_000
-        }
-      )
-
-      console.log(
-        '✅ TikTok via MusicalDown:',
-        result.author ||
-        'unknown'
-      )
+        session
+      })
     } catch (error) {
       console.error(
         '[TIKTOK]',
+        error?.message ||
         error
       )
-
-      let text =
-        '⚠️ *NEXA • TIKTOK*\n\n' +
-        'Video belum berhasil diunduh. Coba lagi beberapa saat nanti.'
-
-      if (
-        error?.message ===
-        'VIDEO_TOO_LARGE'
-      ) {
-        text =
-          '⚠️ *NEXA • TIKTOK*\n\n' +
-          'Video terlalu besar untuk dikirim oleh NEXA.'
-      } else if (
-        error?.message ===
-          'MDOWN_TIMEOUT' ||
-        error?.message ===
-          'MEDIA_TIMEOUT'
-      ) {
-        text =
-          '⚠️ *NEXA • TIKTOK*\n\n' +
-          'MusicalDown terlalu lama merespons. Coba lagi sebentar.'
-      } else if (
-        /^MDOWN_HOME_HTTP_/.test(
-          error?.message || ''
-        )
-      ) {
-        text =
-          '⚠️ *NEXA • TIKTOK*\n\n' +
-          'MusicalDown menolak koneksi dari server NEXA saat ini.'
-      } else if (
-        error?.message ===
-          'MDOWN_FORM_CHANGED' ||
-        error?.message ===
-          'MDOWN_NO_VIDEO'
-      ) {
-        text =
-          '⚠️ *NEXA • TIKTOK*\n\n' +
-          'Format halaman MusicalDown sedang berubah. Coba lagi nanti.'
-      }
 
       await sock.sendMessage(
         jid,
         {
-          text
+          text:
+            '⚠️ *NEXA • TIKTOK*\n\n' +
+            tiktokErrorText(
+              error,
+              prefix
+            )
         },
         {
           quoted: msg
