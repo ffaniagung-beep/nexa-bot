@@ -924,14 +924,50 @@ async function sendTikTokSlide({
       continue
     }
 
-    const album =
-      batch.map(
-        (
-          item,
-          index
-        ) => ({
+    // WHISKEY_ALBUM_FIX_V1
+    // Socket utama NEXA memakai @whiskeysockets/baileys.
+    // Buat parent album dulu, lalu kaitkan setiap foto
+    // memakai albumParentKey supaya benar-benar tampil
+    // sebagai native WhatsApp album/box.
+    const albumParent =
+      await sock.sendMessage(
+        jid,
+        {
+          album: {
+            expectedImageCount:
+              batch.length,
+            expectedVideoCount:
+              0
+          }
+        },
+        {
+          quoted:
+            start === 0
+              ? msg
+              : undefined
+        }
+      )
+
+    if (
+      !albumParent?.key
+    ) {
+      throw new Error(
+        'TIKTOK_ALBUM_PARENT_FAILED'
+      )
+    }
+
+    for (
+      let index = 0;
+      index < batch.length;
+      index++
+    ) {
+      await sock.sendMessage(
+        jid,
+        {
           image:
-            item.buffer,
+            batch[index].buffer,
+          albumParentKey:
+            albumParent.key,
           ...(
             start === 0 &&
             index === 0
@@ -940,23 +976,13 @@ async function sendTikTokSlide({
                 }
               : {}
           )
-        })
+        },
+        {
+          mediaUploadTimeoutMs:
+            120_000
+        }
       )
-
-    await sock.sendMessage(
-      jid,
-      {
-        album
-      },
-      {
-        quoted:
-          start === 0
-            ? msg
-            : undefined,
-        mediaUploadTimeoutMs:
-          120_000
-      }
-    )
+    }
   }
 
   if (failed) {
@@ -2498,6 +2524,15 @@ function tiktokErrorText(
   ) {
     return (
       'Slide terdeteksi, tapi foto gagal diambil dari CDN TikTok.'
+    )
+  }
+
+  if (
+    code ===
+    'TIKTOK_ALBUM_PARENT_FAILED'
+  ) {
+    return (
+      'Slide berhasil diambil, tapi WhatsApp gagal membuat album/box media.'
     )
   }
 
