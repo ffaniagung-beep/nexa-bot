@@ -1,4 +1,8 @@
 import {
+  AIRich
+} from '@rexxhayanasi/elaina-baileys'
+
+import {
   createWriteStream
 } from 'node:fs'
 
@@ -44,9 +48,6 @@ import {
   sendLimitEmpty
 } from '../lib/limitGate.js'
 
-const API =
-  'https://api.alwayscodex.eu.cc/api/downloader/mediafirev2'
-
 const API_TIMEOUT =
   45_000
 
@@ -66,7 +67,10 @@ const MAX_REDIRECTS =
 const MAX_MEDIAFIRE_BYTES =
   1024 * 1024 * 1024
 
-function createMediaFireSizeGuard() {
+function createMediaFireSizeGuard({
+  totalBytes = 0,
+  onProgress = null
+} = {}) {
   let total = 0
 
   return new Transform({
@@ -88,6 +92,38 @@ function createMediaFireSizeGuard() {
           )
         )
         return
+      }
+
+      if (
+        typeof onProgress ===
+          'function'
+      ) {
+        const safeTotal =
+          Number(totalBytes) > 0
+            ? Number(totalBytes)
+            : 0
+
+        const percent =
+          safeTotal > 0
+            ? Math.min(
+                100,
+                Math.floor(
+                  total /
+                  safeTotal *
+                  100
+                )
+              )
+            : null
+
+        try {
+          onProgress({
+            downloadedBytes:
+              total,
+            totalBytes:
+              safeTotal,
+            percent
+          })
+        } catch {}
       }
 
       callback(
@@ -335,125 +371,277 @@ function extractDownloadButton(html) {
     : ''
 }
 
-async function requestMediaFire(url) {
-  let lastError
+function decodeURIComponentSafe(value) {
+  let text =
+    String(value || '')
 
   for (
-    let attempt = 1;
-    attempt <= 2;
-    attempt++
+    let i = 0;
+    i < 3;
+    i += 1
   ) {
-    const controller =
-      new AbortController()
-
-    const timer =
-      setTimeout(
-        () => {
-          controller.abort(
-            new Error(
-              'MEDIAFIRE_API_TIMEOUT'
-            )
-          )
-        },
-        API_TIMEOUT
-      )
-
     try {
-      const response =
-        await fetch(
-          API,
-          {
-            method: 'POST',
+      const next =
+        decodeURIComponent(text)
 
-            headers: {
-              'Content-Type':
-                'application/json',
-              Accept:
-                'application/json'
-            },
-
-            body:
-              JSON.stringify({
-                url
-              }),
-
-            signal:
-              controller.signal
-          }
-        )
-
-      const body =
-        await response.text()
-
-      let json
-
-      try {
-        json = JSON.parse(body)
-      } catch {
-        throw new Error(
-          `MEDIAFIRE_API_INVALID_JSON_${response.status}`
-        )
+      if (next === text) {
+        break
       }
 
-      if (!response.ok) {
-        throw new Error(
-          json?.message ||
-          `MEDIAFIRE_API_HTTP_${response.status}`
-        )
-      }
-
-      if (json?.status !== true) {
-        throw new Error(
-          json?.message ||
-          'MEDIAFIRE_API_FAILED'
-        )
-      }
-
-      const result = json?.result
-
-      if (
-        !result ||
-        typeof result !== 'object'
-      ) {
-        throw new Error(
-          'MEDIAFIRE_RESULT_NOT_FOUND'
-        )
-      }
-
-      return result
-    } catch (error) {
-      lastError = error
-
-      const text =
-        `${
-          error?.cause?.code || ''
-        } ${
-          error?.code || ''
-        } ${
-          error?.message || ''
-        }`
-
-      if (
-        attempt < 2 &&
-        /timeout|fetch failed|connection|socket|econn|enotfound/i
-          .test(text)
-      ) {
-        await sleep(1500)
-        continue
-      }
-
-      throw error
-    } finally {
-      clearTimeout(timer)
+      text = next
+    } catch {
+      break
     }
   }
 
-  throw (
-    lastError ||
-    new Error(
-      'MEDIAFIRE_API_FAILED'
+  return text
+}
+
+function fileNameFromUrl(value) {
+  try {
+    const url =
+      new URL(value)
+
+    const parts =
+      url.pathname
+        .split('/')
+        .filter(Boolean)
+
+    const last =
+      parts[parts.length - 1] ||
+      ''
+
+    return decodeURIComponentSafe(
+      last
     )
-  )
+  } catch {
+    return ''
+  }
+}
+
+function fileNameFromPageUrl(value) {
+  try {
+    const url =
+      new URL(value)
+
+    const parts =
+      url.pathname
+        .split('/')
+        .filter(Boolean)
+
+    if (
+      parts.length >= 3 &&
+      parts[0] === 'file'
+    ) {
+      const candidate =
+        parts[parts.length - 1] ===
+          'file'
+          ? parts[parts.length - 2]
+          : parts[parts.length - 1]
+
+      return decodeURIComponentSafe(
+        candidate
+      )
+    }
+
+    return ''
+  } catch {
+    return ''
+  }
+}
+
+function inferMimeFromName(value) {
+  const name =
+    String(value || '')
+      .toLowerCase()
+
+  const ext =
+    name.includes('.')
+      ? name.split('.').pop()
+      : ''
+
+  const map = {
+    zip: 'application/zip',
+    rar: 'application/vnd.rar',
+    '7z': 'application/x-7z-compressed',
+    apk: 'application/vnd.android.package-archive',
+    xapk: 'application/zip',
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+    json: 'application/json',
+    mp3: 'audio/mpeg',
+    m4a: 'audio/mp4',
+    wav: 'audio/wav',
+    mp4: 'video/mp4',
+    mkv: 'video/x-matroska',
+    webm: 'video/webm',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    gif: 'image/gif'
+  }
+
+  return map[ext] ||
+    'application/octet-stream'
+}
+
+function extractMediaFireMeta(
+  html,
+  originalUrl,
+  directUrl
+) {
+  const plain =
+    decodeHtml(
+      String(html || '')
+        .replace(
+          /<script\b[^>]*>[\s\S]*?<\/script>/gi,
+          ' '
+        )
+        .replace(
+          /<style\b[^>]*>[\s\S]*?<\/style>/gi,
+          ' '
+        )
+        .replace(
+          /<[^>]+>/g,
+          ' '
+        )
+    )
+      .replace(/\s+/g, ' ')
+      .trim()
+
+  const sizeMatch =
+    plain.match(
+      /File\s*size\s*:\s*([\d.,]+\s*(?:B|KB|MB|GB|TB))/i
+    ) ||
+    plain.match(
+      /Download\s*\(\s*([\d.,]+\s*(?:B|KB|MB|GB|TB))\s*\)/i
+    )
+
+  const fileName =
+    fileNameFromUrl(
+      directUrl
+    ) ||
+    fileNameFromPageUrl(
+      originalUrl
+    ) ||
+    'NEXA-MediaFire.bin'
+
+  const ext =
+    fileName.includes('.')
+      ? fileName
+          .split('.')
+          .pop()
+          .replace(
+            /[^a-z0-9]/gi,
+            ''
+          )
+          .toLowerCase()
+      : ''
+
+  return {
+    filename:
+      fileName,
+    ext,
+    mimetype:
+      inferMimeFromName(
+        fileName
+      ),
+    filesize:
+      sizeMatch?.[1]
+        ? sizeMatch[1]
+            .replace(/\s+/g, '')
+        : '-'
+  }
+}
+
+async function requestMediaFire(url) {
+  const controller =
+    new AbortController()
+
+  const timer =
+    setTimeout(
+      () => {
+        controller.abort(
+          new Error(
+            'MEDIAFIRE_PAGE_TIMEOUT'
+          )
+        )
+      },
+      API_TIMEOUT
+    )
+
+  try {
+    const response =
+      await fetch(
+        url,
+        {
+          redirect: 'follow',
+          headers: {
+            'User-Agent': UA,
+            Accept:
+              'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language':
+              'id-ID,id;q=0.9,en-US;q=0.8'
+          },
+          signal:
+            controller.signal
+        }
+      )
+
+    if (!response.ok) {
+      throw new Error(
+        `MEDIAFIRE_PAGE_HTTP_${response.status}`
+      )
+    }
+
+    const html =
+      await response.text()
+
+    const directUrl =
+      extractDownloadButton(
+        html
+      )
+
+    if (!directUrl) {
+      throw new Error(
+        'MEDIAFIRE_LOCAL_DIRECT_NOT_FOUND'
+      )
+    }
+
+    const meta =
+      extractMediaFireMeta(
+        html,
+        response.url || url,
+        directUrl
+      )
+
+    return {
+      ...meta,
+      link:
+        directUrl,
+      cookie:
+        cookieHeaderFrom(
+          response
+        ),
+      referer:
+        response.url ||
+        url
+    }
+  } catch (error) {
+    if (
+      error?.name ===
+        'AbortError'
+    ) {
+      throw new Error(
+        'MEDIAFIRE_PAGE_TIMEOUT'
+      )
+    }
+
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 async function resolveLocalMediaFireLink(
@@ -738,7 +926,8 @@ async function downloadToTemp({
   fileName,
   expectedBytes,
   cookie,
-  referer
+  referer,
+  onProgress = null
 }) {
   const dir =
     await mkdtemp(
@@ -843,7 +1032,13 @@ async function downloadToTemp({
 
     await pipeline(
       response,
-      createMediaFireSizeGuard(),
+      createMediaFireSizeGuard({
+        totalBytes:
+          contentLength ||
+          expectedBytes ||
+          0,
+        onProgress
+      }),
       createWriteStream(
         filePath,
         {
@@ -912,68 +1107,263 @@ async function downloadWithFallback({
   originalUrl,
   apiDirectUrl,
   fileName,
-  expectedBytes
+  expectedBytes,
+  cookie = '',
+  referer = '',
+  onProgress = null
 }) {
-  let localError = null
+  let resolved = null
 
-  try {
-    const resolved =
+  if (apiDirectUrl) {
+    resolved = {
+      directUrl:
+        apiDirectUrl,
+      cookie,
+      referer:
+        referer ||
+        originalUrl
+    }
+  } else {
+    resolved =
       await resolveLocalMediaFireLink(
         originalUrl
       )
-
-    console.log(
-      '[MEDIAFIRE V3] local direct link resolved'
-    )
-
-    return await downloadToTemp({
-      directUrl:
-        resolved.directUrl,
-      fileName,
-      expectedBytes,
-      cookie:
-        resolved.cookie,
-      referer:
-        resolved.referer
-    })
-  } catch (error) {
-    localError = error
-
-    if (
-      /MEDIAFIRE_FILE_TOO_LARGE/i
-        .test(
-          String(
-            error?.message ||
-            ''
-          )
-        )
-    ) {
-      throw error
-    }
-
-    console.warn(
-      '[MEDIAFIRE V3] local resolve/download failed:',
-      error?.message ||
-      error
-    )
-  }
-
-  if (!apiDirectUrl) {
-    throw localError
   }
 
   console.log(
-    '[MEDIAFIRE V3] trying API direct link fallback'
+    '[MEDIAFIRE V4] direct link resolved locally'
   )
 
   return downloadToTemp({
     directUrl:
-      apiDirectUrl,
+      resolved.directUrl,
     fileName,
     expectedBytes,
+    cookie:
+      resolved.cookie,
     referer:
-      originalUrl
+      resolved.referer,
+    onProgress
   })
+}
+
+function progressBar(percent) {
+  const safe =
+    Math.max(
+      0,
+      Math.min(
+        100,
+        Number(percent) || 0
+      )
+    )
+
+  const filled =
+    Math.round(
+      safe / 10
+    )
+
+  return (
+    '█'.repeat(filled) +
+    '░'.repeat(10 - filled)
+  )
+}
+
+async function startMediaFireRichStatus({
+  sock,
+  msg,
+  jid
+}) {
+  try {
+    const rich =
+      new AIRich(sock)
+        .setTitle(
+          '✦ NEXA • MEDIAFIRE'
+        )
+        .setFooter(
+          'NEXA Downloader • AIRich'
+        )
+        .addText(
+          '⏳ Mengambil metadata dan direct link file...',
+          {
+            id:
+              'status'
+          }
+        )
+
+    await rich.send(
+      jid,
+      {
+        quoted:
+          msg
+      }
+    )
+
+    return rich
+  } catch (error) {
+    console.warn(
+      '[MEDIAFIRE V4] AIRich start fallback:',
+      error?.message ||
+      error
+    )
+
+    return null
+  }
+}
+
+async function updateMediaFireRichStatus(
+  rich,
+  text
+) {
+  if (!rich) {
+    return false
+  }
+
+  try {
+    rich.addText(
+      text,
+      {
+        replace:
+          'status'
+      }
+    )
+
+    await rich.sendEdit()
+    return true
+  } catch (error) {
+    console.warn(
+      '[MEDIAFIRE V4] AIRich edit fallback:',
+      error?.message ||
+      error
+    )
+
+    return false
+  }
+}
+
+function createMediaFireProgressUpdater({
+  rich,
+  fileName
+}) {
+  let lastPercent =
+    -5
+
+  let lastAt =
+    0
+
+  let active =
+    Boolean(rich)
+
+  let queue =
+    Promise.resolve()
+
+  const report = state => {
+    if (!active) {
+      return
+    }
+
+    const now =
+      Date.now()
+
+    const percent =
+      Number.isFinite(
+        Number(
+          state?.percent
+        )
+      )
+        ? Number(
+            state.percent
+          )
+        : null
+
+    if (percent !== null) {
+      const bucket =
+        percent >= 100
+          ? 100
+          : Math.floor(
+              percent / 5
+            ) * 5
+
+      if (
+        bucket < 100 &&
+        bucket <
+          lastPercent + 5 &&
+        now - lastAt <
+          2500
+      ) {
+        return
+      }
+
+      lastPercent =
+        Math.max(
+          lastPercent,
+          bucket
+        )
+
+      lastAt =
+        now
+
+      const text =
+        `📁 *${fileName}*\n` +
+        `⬇️ Mengunduh dari MediaFire...\n\n` +
+        `${progressBar(bucket)} *${bucket}%*\n` +
+        `${humanBytes(state.downloadedBytes)} / ${humanBytes(state.totalBytes)}`
+
+      queue =
+        queue.then(
+          async () => {
+            const ok =
+              await updateMediaFireRichStatus(
+                rich,
+                text
+              )
+
+            if (!ok) {
+              active =
+                false
+            }
+          }
+        )
+
+      return
+    }
+
+    if (
+      now - lastAt <
+      3000
+    ) {
+      return
+    }
+
+    lastAt =
+      now
+
+    queue =
+      queue.then(
+        async () => {
+          const ok =
+            await updateMediaFireRichStatus(
+              rich,
+              `📁 *${fileName}*\n` +
+              `⬇️ Mengunduh dari MediaFire...\n\n` +
+              `📦 ${humanBytes(state.downloadedBytes)}`
+            )
+
+          if (!ok) {
+            active =
+              false
+          }
+        }
+      )
+  }
+
+  report.flush =
+    async () => {
+      try {
+        await queue
+      } catch {}
+    }
+
+  return report
 }
 
 function errorText(error) {
@@ -1138,18 +1528,33 @@ export default {
     let job =
       null
 
+    let richStatus =
+      null
+
+    let progressUpdate =
+      null
+
     try {
-      await sock.sendMessage(
-        jid,
-        {
-          text:
-            '✦ *NEXA • MEDIAFIRE*\n\n' +
-            '⏳ Mengambil metadata dan direct link file...'
-        },
-        {
-          quoted: msg
-        }
-      )
+      richStatus =
+        await startMediaFireRichStatus({
+          sock,
+          msg,
+          jid
+        })
+
+      if (!richStatus) {
+        await sock.sendMessage(
+          jid,
+          {
+            text:
+              '✦ *NEXA • MEDIAFIRE*\n\n' +
+              '⏳ Mengambil metadata dan direct link file...'
+          },
+          {
+            quoted: msg
+          }
+        )
+      }
 
       const data =
         await requestMediaFire(
@@ -1251,30 +1656,55 @@ export default {
         MAX_MEDIAFIRE_BYTES
       )
 
-      await sock.sendMessage(
-        jid,
-        {
-          text:
-            '✦ *NEXA • MEDIAFIRE*\n\n' +
-            `📁 *File:* ${fileName}\n` +
-            `📦 *Ukuran:* ${String(data.filesize || '-')}\n` +
-            `🧩 *Tipe:* ${mimetype}\n` +
-            `🎟 *Biaya awal:* ${
-              job.cost
-                ? `${job.cost} Limit${
-                    job.access?.premium
-                      ? ' • Premium ⭐'
-                      : ''
-                  }`
-                : 'Gratis • Owner 👑'
-            }\n\n` +
-            'Biaya final menyesuaikan ukuran aktual.\n' +
-            '⬇️ Mengunduh file asli dari MediaFire...'
-        },
-        {
-          quoted: msg
-        }
-      )
+
+      const costText =
+        job.cost
+          ? `${job.cost} Limit${
+              job.access?.premium
+                ? ' • Premium ⭐'
+                : ''
+            }`
+          : 'Gratis • Owner 👑'
+
+      const metadataText =
+        `📁 *${fileName}*\n` +
+        `📦 *Ukuran:* ${String(data.filesize || '-')}\n` +
+        `🧩 *Tipe:* ${mimetype}\n` +
+        `🎟 *Biaya awal:* ${costText}\n\n` +
+        `⬇️ Mengunduh file asli dari MediaFire...\n\n` +
+        `${progressBar(0)} *0%*`
+
+      const richUpdated =
+        await updateMediaFireRichStatus(
+          richStatus,
+          metadataText
+        )
+
+      if (!richUpdated) {
+        await sock.sendMessage(
+          jid,
+          {
+            text:
+              '✦ *NEXA • MEDIAFIRE*\n\n' +
+              `📁 *File:* ${fileName}\n` +
+              `📦 *Ukuran:* ${String(data.filesize || '-')}\n` +
+              `🧩 *Tipe:* ${mimetype}\n` +
+              `🎟 *Biaya awal:* ${costText}\n\n` +
+              'Biaya final menyesuaikan ukuran aktual.\n' +
+              '⬇️ Mengunduh file asli dari MediaFire...'
+          },
+          {
+            quoted: msg
+          }
+        )
+      }
+
+      progressUpdate =
+        createMediaFireProgressUpdater({
+          rich:
+            richStatus,
+          fileName
+        })
 
       downloaded =
         await downloadWithFallback({
@@ -1283,8 +1713,24 @@ export default {
           apiDirectUrl:
             data.link,
           fileName,
-          expectedBytes
+          expectedBytes,
+          cookie:
+            data.cookie || '',
+          referer:
+            data.referer || url,
+          onProgress:
+            progressUpdate
         })
+
+      await progressUpdate
+        ?.flush?.()
+
+      await updateMediaFireRichStatus(
+        richStatus,
+        `📁 *${fileName}*\n` +
+        `⬇️ Download selesai • ${humanBytes(downloaded.actualBytes)}\n\n` +
+        `⬆️ Mengirim file ke WhatsApp...`
+      )
 
       const finalCost =
         job.access?.owner
@@ -1343,6 +1789,18 @@ export default {
             UPLOAD_TIMEOUT
         }
       )
+
+      await updateMediaFireRichStatus(
+        richStatus,
+        `✅ *Selesai*\n\n` +
+        `📁 *${fileName}*\n` +
+        `📦 ${humanBytes(downloaded.actualBytes)}\n` +
+        `🎟 ${
+          job.cost
+            ? `${job.cost} Limit`
+            : 'Gratis • Owner 👑'
+        }`
+      )
     } catch (error) {
       const refunded =
         job?.ok
@@ -1354,8 +1812,13 @@ export default {
               refunded: false
             }
 
+      await updateMediaFireRichStatus(
+        richStatus,
+        `❌ *Download gagal*\n\n${errorText(error)}`
+      )
+
       console.error(
-        '[MEDIAFIRE V3]',
+        '[MEDIAFIRE V4]',
         error
       )
 
