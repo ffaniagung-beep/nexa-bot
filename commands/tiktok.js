@@ -1,4 +1,5 @@
-// NEXA_TIKTOK_BUTTON_V2
+// NEXA_TIKTOK_SMART_V3
+// Video: Button Video/HD/MP3 • Slide: native WhatsApp album
 import {
   Button
 } from '@rexxhayanasi/elaina-baileys'
@@ -27,6 +28,15 @@ const MDOWN_DOWNLOAD =
 
 const MAX_VIDEO_BYTES =
   50 * 1024 * 1024
+
+const MAX_SLIDE_IMAGES =
+  35
+
+const SLIDE_BATCH_SIZE =
+  10
+
+const MAX_SLIDE_IMAGE_BYTES =
+  15 * 1024 * 1024
 
 const USER_AGENT =
   'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36'
@@ -183,6 +193,794 @@ function browserHeaders({
         }
       : {})
   }
+}
+
+function tiktokPageHeaders() {
+  return {
+    'User-Agent':
+      USER_AGENT,
+    Accept:
+      'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language':
+      'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Cache-Control':
+      'no-cache',
+    Pragma:
+      'no-cache',
+    'Upgrade-Insecure-Requests':
+      '1'
+  }
+}
+
+function findTikTokItemStruct(
+  value,
+  depth = 0
+) {
+  if (
+    !value ||
+    depth > 12
+  ) {
+    return null
+  }
+
+  if (
+    typeof value !==
+    'object'
+  ) {
+    return null
+  }
+
+  if (
+    (
+      value.imagePost ||
+      value.video
+    ) &&
+    value.author &&
+    value.stats
+  ) {
+    return value
+  }
+
+  const children =
+    Array.isArray(value)
+      ? value
+      : Object.values(value)
+
+  for (
+    const child
+    of children
+  ) {
+    const found =
+      findTikTokItemStruct(
+        child,
+        depth + 1
+      )
+
+    if (found) {
+      return found
+    }
+  }
+
+  return null
+}
+
+function parseTikTokPageItem(
+  html
+) {
+  const $ =
+    cheerio.load(
+      String(html || '')
+    )
+
+  const selectors = [
+    'script#__UNIVERSAL_DATA_FOR_REHYDRATION__',
+    'script#SIGI_STATE',
+    'script#sigi-persisted-data'
+  ]
+
+  for (
+    const selector
+    of selectors
+  ) {
+    const raw =
+      $(selector)
+        .first()
+        .html()
+
+    if (!raw) {
+      continue
+    }
+
+    try {
+      const json =
+        JSON.parse(raw)
+
+      const direct =
+        json
+          ?.__DEFAULT_SCOPE__
+          ?.[
+            'webapp.video-detail'
+          ]
+          ?.itemInfo
+          ?.itemStruct
+
+      if (direct) {
+        return direct
+      }
+
+      const found =
+        findTikTokItemStruct(
+          json
+        )
+
+      if (found) {
+        return found
+      }
+    } catch {
+      // lanjut selector berikutnya
+    }
+  }
+
+  return null
+}
+
+function normalizeUrlList(
+  value
+) {
+  const list =
+    Array.isArray(value)
+      ? value
+      : []
+
+  const unique =
+    new Set()
+
+  const result = []
+
+  for (
+    const item
+    of list
+  ) {
+    if (!httpUrl(item)) {
+      continue
+    }
+
+    const lower =
+      String(item)
+        .toLowerCase()
+
+    if (
+      lower.includes(
+        '.heic'
+      )
+    ) {
+      continue
+    }
+
+    if (
+      unique.has(item)
+    ) {
+      continue
+    }
+
+    unique.add(item)
+    result.push(item)
+  }
+
+  return result
+}
+
+function extractSlideImages(
+  item
+) {
+  const raw =
+    Array.isArray(
+      item
+        ?.imagePost
+        ?.images
+    )
+      ? item.imagePost.images
+      : []
+
+  return raw
+    .map(
+      (
+        image,
+        index
+      ) => {
+        const candidates = [
+          ...normalizeUrlList(
+            image
+              ?.imageURL
+              ?.urlList
+          ),
+          ...normalizeUrlList(
+            image
+              ?.displayImage
+              ?.urlList
+          ),
+          ...normalizeUrlList(
+            image
+              ?.ownerWatermarkImage
+              ?.urlList
+          )
+        ]
+
+        const urls =
+          [
+            ...new Set(
+              candidates
+            )
+          ]
+
+        return {
+          index,
+          urls
+        }
+      }
+    )
+    .filter(
+      image =>
+        image.urls.length
+    )
+    .slice(
+      0,
+      MAX_SLIDE_IMAGES
+    )
+}
+
+async function fetchTikTokPageInfo(
+  url
+) {
+  const controller =
+    new AbortController()
+
+  const timeout =
+    setTimeout(
+      () =>
+        controller.abort(),
+      20_000
+    )
+
+  try {
+    const response =
+      await fetch(
+        url,
+        {
+          redirect:
+            'follow',
+          headers:
+            tiktokPageHeaders(),
+          signal:
+            controller.signal
+        }
+      )
+
+    const finalUrl =
+      response.url ||
+      url
+
+    const isPhotoPath =
+      /\/photo\//i.test(
+        finalUrl
+      )
+
+    if (!response.ok) {
+      return {
+        type:
+          isPhotoPath
+            ? 'slide-unresolved'
+            : 'unknown',
+        finalUrl,
+        isPhotoPath
+      }
+    }
+
+    const html =
+      await response.text()
+
+    const item =
+      parseTikTokPageItem(
+        html
+      )
+
+    if (!item) {
+      return {
+        type:
+          isPhotoPath
+            ? 'slide-unresolved'
+            : 'unknown',
+        finalUrl,
+        isPhotoPath
+      }
+    }
+
+    const images =
+      extractSlideImages(
+        item
+      )
+
+    const author =
+      cleanUser(
+        item
+          ?.author
+          ?.uniqueId ||
+        item
+          ?.author
+          ?.nickname ||
+        ''
+      )
+
+    const description =
+      cleanText(
+        item?.desc ||
+        item
+          ?.imagePost
+          ?.title ||
+        '',
+        650
+      )
+
+    const stats =
+      item?.stats ||
+      {}
+
+    const common = {
+      finalUrl,
+      author,
+      description,
+      views:
+        Number.isFinite(
+          Number(
+            stats.playCount
+          )
+        )
+          ? Number(
+              stats.playCount
+            )
+          : null,
+      likes:
+        Number.isFinite(
+          Number(
+            stats.diggCount
+          )
+        )
+          ? Number(
+              stats.diggCount
+            )
+          : null,
+      comments:
+        Number.isFinite(
+          Number(
+            stats.commentCount
+          )
+        )
+          ? Number(
+              stats.commentCount
+            )
+          : null
+    }
+
+    if (images.length) {
+      return {
+        type:
+          'slide',
+        ...common,
+        images,
+        musicUrl:
+          httpUrl(
+            item
+              ?.music
+              ?.playUrl
+          )
+            ? item.music.playUrl
+            : null
+      }
+    }
+
+    return {
+      type:
+        'video',
+      ...common
+    }
+  } catch (
+    error
+  ) {
+    if (
+      error?.name ===
+      'AbortError'
+    ) {
+      return {
+        type:
+          'unknown',
+        finalUrl:
+          url,
+        isPhotoPath:
+          /\/photo\//i.test(
+            url
+          ),
+        timedOut:
+          true
+      }
+    }
+
+    console.warn(
+      '[TIKTOK] Direct page metadata fallback:',
+      error?.message ||
+      error
+    )
+
+    return {
+      type:
+        'unknown',
+      finalUrl:
+        url,
+      isPhotoPath:
+        /\/photo\//i.test(
+          url
+        )
+    }
+  } finally {
+    clearTimeout(
+      timeout
+    )
+  }
+}
+
+async function downloadSlideImage(
+  image
+) {
+  let lastError =
+    null
+
+  for (
+    const url
+    of image.urls
+  ) {
+    const controller =
+      new AbortController()
+
+    const timeout =
+      setTimeout(
+        () =>
+          controller.abort(),
+        35_000
+      )
+
+    try {
+      const response =
+        await fetch(
+          url,
+          {
+            redirect:
+              'follow',
+            headers: {
+              'User-Agent':
+                USER_AGENT,
+              Accept:
+                'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+              Referer:
+                'https://www.tiktok.com/'
+            },
+            signal:
+              controller.signal
+          }
+        )
+
+      if (!response.ok) {
+        lastError =
+          new Error(
+            `SLIDE_IMAGE_HTTP_${response.status}`
+          )
+        continue
+      }
+
+      const type =
+        String(
+          response.headers.get(
+            'content-type'
+          ) ||
+          ''
+        )
+          .toLowerCase()
+
+      if (
+        type &&
+        !type.startsWith(
+          'image/'
+        ) &&
+        !type.includes(
+          'octet-stream'
+        )
+      ) {
+        lastError =
+          new Error(
+            'SLIDE_IMAGE_BAD_TYPE'
+          )
+        continue
+      }
+
+      const declared =
+        Number(
+          response.headers.get(
+            'content-length'
+          )
+        )
+
+      if (
+        Number.isFinite(
+          declared
+        ) &&
+        declared >
+          MAX_SLIDE_IMAGE_BYTES
+      ) {
+        lastError =
+          new Error(
+            'SLIDE_IMAGE_TOO_LARGE'
+          )
+        continue
+      }
+
+      const buffer =
+        Buffer.from(
+          await response.arrayBuffer()
+        )
+
+      if (
+        !buffer.length
+      ) {
+        lastError =
+          new Error(
+            'SLIDE_IMAGE_EMPTY'
+          )
+        continue
+      }
+
+      if (
+        buffer.length >
+        MAX_SLIDE_IMAGE_BYTES
+      ) {
+        lastError =
+          new Error(
+            'SLIDE_IMAGE_TOO_LARGE'
+          )
+        continue
+      }
+
+      return {
+        buffer,
+        contentType:
+          type ||
+          'image/jpeg'
+      }
+    } catch (
+      error
+    ) {
+      lastError =
+        error
+    } finally {
+      clearTimeout(
+        timeout
+      )
+    }
+  }
+
+  throw (
+    lastError ||
+    new Error(
+      'SLIDE_IMAGE_FAILED'
+    )
+  )
+}
+
+function makeSlideCaption(
+  info
+) {
+  const lines = [
+    '✦ *NEXA • TIKTOK SLIDE*'
+  ]
+
+  if (info.author) {
+    lines.push(
+      `👤 @${info.author}`
+    )
+  }
+
+  const stats = []
+
+  if (
+    info.likes !== null
+  ) {
+    stats.push(
+      `♥ ${compactNumber(info.likes)}`
+    )
+  }
+
+  if (
+    info.comments !== null
+  ) {
+    stats.push(
+      `💬 ${compactNumber(info.comments)}`
+    )
+  }
+
+  if (stats.length) {
+    lines.push(
+      stats.join(
+        '  •  '
+      )
+    )
+  }
+
+  if (
+    info.description
+  ) {
+    lines.push(
+      '',
+      `📝 ${info.description}`
+    )
+  }
+
+  return lines.join(
+    '\n'
+  )
+}
+
+async function sendTikTokSlide({
+  sock,
+  msg,
+  jid,
+  info
+}) {
+  await sock.sendMessage(
+    jid,
+    {
+      text:
+        `✦ *NEXA • TIKTOK DOWNLOADER*\n\n` +
+        `🖼️ Terdeteksi: *Slide Foto*\n` +
+        `📸 ${info.images.length} foto ditemukan.\n\n` +
+        `⬇️ NEXA otomatis menyiapkan album WhatsApp...`
+    },
+    {
+      quoted:
+        msg
+    }
+  )
+
+  const media = []
+  let failed = 0
+
+  for (
+    const image
+    of info.images
+  ) {
+    try {
+      media.push(
+        await downloadSlideImage(
+          image
+        )
+      )
+    } catch (
+      error
+    ) {
+      failed += 1
+
+      console.warn(
+        '[TIKTOK] Slide image skipped:',
+        image.index,
+        error?.message ||
+        error
+      )
+    }
+  }
+
+  if (!media.length) {
+    throw new Error(
+      'TIKTOK_SLIDE_DOWNLOAD_FAILED'
+    )
+  }
+
+  const caption =
+    makeSlideCaption(
+      info
+    )
+
+  for (
+    let start = 0;
+    start < media.length;
+    start +=
+      SLIDE_BATCH_SIZE
+  ) {
+    const batch =
+      media.slice(
+        start,
+        start +
+          SLIDE_BATCH_SIZE
+      )
+
+    if (
+      batch.length ===
+      1
+    ) {
+      await sock.sendMessage(
+        jid,
+        {
+          image:
+            batch[0].buffer,
+          caption:
+            start === 0
+              ? caption
+              : undefined
+        },
+        {
+          quoted:
+            start === 0
+              ? msg
+              : undefined,
+          mediaUploadTimeoutMs:
+            120_000
+        }
+      )
+      continue
+    }
+
+    const album =
+      batch.map(
+        (
+          item,
+          index
+        ) => ({
+          image:
+            item.buffer,
+          ...(
+            start === 0 &&
+            index === 0
+              ? {
+                  caption
+                }
+              : {}
+          )
+        })
+      )
+
+    await sock.sendMessage(
+      jid,
+      {
+        album
+      },
+      {
+        quoted:
+          start === 0
+            ? msg
+            : undefined,
+        mediaUploadTimeoutMs:
+          120_000
+      }
+    )
+  }
+
+  if (failed) {
+    await sock.sendMessage(
+      jid,
+      {
+        text:
+          `⚠️ ${failed} foto gagal diambil dari CDN TikTok, ` +
+          `${media.length} foto lainnya berhasil dikirim.`
+      },
+      {
+        quoted:
+          msg
+      }
+    )
+  }
+
+  console.log(
+    '✅ TikTok slide:',
+    media.length,
+    'foto',
+    info.author ||
+    'unknown'
+  )
 }
 
 function buildMdownForm(html, tiktokUrl) {
@@ -1687,6 +2485,24 @@ function tiktokErrorText(
 
   if (
     code ===
+    'TIKTOK_SLIDE_UNAVAILABLE'
+  ) {
+    return (
+      'Slide foto terdeteksi, tapi daftar fotonya belum berhasil dibaca langsung dari TikTok. Coba lagi beberapa saat.'
+    )
+  }
+
+  if (
+    code ===
+    'TIKTOK_SLIDE_DOWNLOAD_FAILED'
+  ) {
+    return (
+      'Slide terdeteksi, tapi foto gagal diambil dari CDN TikTok.'
+    )
+  }
+
+  if (
+    code ===
     'TIKTOK_OPTION_UNAVAILABLE'
   ) {
     return (
@@ -1744,16 +2560,13 @@ export default {
   name:
     'tiktok',
 
-  aliases: [
-    'tt',
-    'ttdl'
-  ],
+  aliases: [],
 
   category:
     'DOWNLOADER',
 
   description:
-    'Download TikTok via tombol Video / HD / MP3',
+    'Download TikTok video / HD / MP3 dan slide foto otomatis',
 
   usage:
     '.tiktok <url>',
@@ -1867,17 +2680,72 @@ export default {
         {
           text:
             '✦ *NEXA • TIKTOK*\n\n' +
-            '⏳ Menganalisis video dan pilihan kualitas...'
+            '⏳ Menganalisis postingan TikTok...'
         },
         {
           quoted: msg
         }
       )
 
+      const pageInfo =
+        await fetchTikTokPageInfo(
+          url
+        )
+
+      if (
+        pageInfo?.type ===
+        'slide'
+      ) {
+        await sendTikTokSlide({
+          sock,
+          msg,
+          jid,
+          info:
+            pageInfo
+        })
+        return
+      }
+
+      if (
+        pageInfo?.type ===
+        'slide-unresolved'
+      ) {
+        throw new Error(
+          'TIKTOK_SLIDE_UNAVAILABLE'
+        )
+      }
+
       const result =
         await fetchTikTok(
           url
         )
+
+      if (
+        pageInfo?.type ===
+        'video'
+      ) {
+        result.author =
+          result.author ||
+          pageInfo.author ||
+          ''
+
+        result.description =
+          result.description ||
+          pageInfo.description ||
+          ''
+
+        result.views =
+          pageInfo.views ??
+          result.views
+
+        result.likes =
+          pageInfo.likes ??
+          result.likes
+
+        result.comments =
+          pageInfo.comments ??
+          result.comments
+      }
 
       const session =
         makeTikTokSession({
