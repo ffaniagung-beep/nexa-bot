@@ -1,6 +1,7 @@
-// NEXA_TIKTOK_SEARCH_WEB_V1
-// Direct scrape: https://www.tiktok.com/search?q=...
-// Search only. Download button delegates to the existing .tiktok command.
+// NEXA_TIKTOK_SEARCH_BROWSER_V2
+// Browser-first TikTok search.
+// Download button delegates to the existing .tiktok command.
+// Does NOT solve/bypass CAPTCHA: if TikTok challenges the browser, it fails cleanly.
 
 import {
   Button,
@@ -8,42 +9,38 @@ import {
 } from '@rexxhayanasi/elaina-baileys'
 
 import {
+  existsSync,
   readFileSync
 } from 'node:fs'
 
+import puppeteer from 'puppeteer-core'
+import chromium from '@sparticuz/chromium'
 import * as cheerio from 'cheerio'
 
-const MAX_RESULTS =
-  8
-
-const SEARCH_TIMEOUT_MS =
-  20_000
-
-const OEMBED_TIMEOUT_MS =
-  8_000
-
-const CACHE_TTL_MS =
-  2 * 60 * 1000
+const MAX_RESULTS = 8
+const SEARCH_TIMEOUT_MS = 28_000
+const API_WAIT_MS = 10_000
+const OEMBED_TIMEOUT_MS = 7_000
+const CACHE_TTL_MS = 2 * 60 * 1000
 
 const DESKTOP_UA =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+  'Mozilla/5.0 (X11; Linux x86_64) ' +
   'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-  'Chrome/131.0.0.0 Safari/537.36'
+  'Chrome/153.0.0.0 Safari/537.36'
 
-const cache =
-  new Map()
+const cache = new Map()
 
-let fallbackImage =
-  null
+let browserPromise = null
+
+let fallbackImage = null
 
 try {
-  fallbackImage =
-    readFileSync(
-      new URL(
-        '../media/menu.jpg',
-        import.meta.url
-      )
+  fallbackImage = readFileSync(
+    new URL(
+      '../media/menu.jpg',
+      import.meta.url
     )
+  )
 } catch {}
 
 function cleanText(
@@ -67,13 +64,10 @@ function cleanText(
 function compactNumber(
   value
 ) {
-  const number =
-    Number(value)
+  const number = Number(value)
 
   if (
-    !Number.isFinite(
-      number
-    ) ||
+    !Number.isFinite(number) ||
     number < 0
   ) {
     return '-'
@@ -82,26 +76,19 @@ function compactNumber(
   return new Intl.NumberFormat(
     'id-ID',
     {
-      notation:
-        'compact',
-      maximumFractionDigits:
-        1
+      notation: 'compact',
+      maximumFractionDigits: 1
     }
-  ).format(
-    number
-  )
+  ).format(number)
 }
 
 function safeHttpUrl(
   value
 ) {
   try {
-    const url =
-      new URL(
-        String(
-          value || ''
-        )
-      )
+    const url = new URL(
+      String(value || '')
+    )
 
     if (
       ![
@@ -120,26 +107,6 @@ function safeHttpUrl(
   }
 }
 
-function urlList(
-  value
-) {
-  if (
-    !Array.isArray(
-      value
-    )
-  ) {
-    return []
-  }
-
-  return value
-    .map(
-      safeHttpUrl
-    )
-    .filter(
-      Boolean
-    )
-}
-
 function firstUrl(
   ...values
 ) {
@@ -152,9 +119,7 @@ function firstUrl(
       'string'
     ) {
       const url =
-        safeHttpUrl(
-          value
-        )
+        safeHttpUrl(value)
 
       if (url) {
         return url
@@ -163,11 +128,20 @@ function firstUrl(
       continue
     }
 
-    for (
-      const item
-      of urlList(value)
+    if (
+      Array.isArray(value)
     ) {
-      return item
+      for (
+        const item
+        of value
+      ) {
+        const url =
+          safeHttpUrl(item)
+
+        if (url) {
+          return url
+        }
+      }
     }
   }
 
@@ -177,26 +151,20 @@ function firstUrl(
 function normalizeAuthor(
   value
 ) {
-  if (
-    !value ||
-    typeof value !==
+  const source =
+    value &&
+    typeof value ===
       'object'
-  ) {
-    return {
-      username:
-        '',
-      nickname:
-        ''
-    }
-  }
+      ? value
+      : {}
 
   return {
     username:
       cleanText(
-        value.uniqueId ||
-        value.unique_id ||
-        value.username ||
-        value.handle ||
+        source.uniqueId ||
+        source.unique_id ||
+        source.username ||
+        source.handle ||
         '',
         80
       ).replace(
@@ -206,13 +174,37 @@ function normalizeAuthor(
 
     nickname:
       cleanText(
-        value.nickname ||
-        value.nickName ||
-        value.name ||
+        source.nickname ||
+        source.nickName ||
+        source.name ||
         '',
         100
       )
   }
+}
+
+function slideCover(
+  item
+) {
+  const images =
+    item?.imagePost?.images ||
+    item?.image_post_info?.images ||
+    item?.images ||
+    []
+
+  const first =
+    Array.isArray(images)
+      ? images[0]
+      : null
+
+  return firstUrl(
+    first?.imageURL?.urlList,
+    first?.displayImage?.urlList,
+    first?.ownerWatermarkImage?.urlList,
+    first?.image_url?.url_list,
+    first?.display_image?.url_list,
+    first?.url_list
+  )
 }
 
 function postUrl({
@@ -230,31 +222,6 @@ function postUrl({
   return (
     `https://www.tiktok.com/@${encodeURIComponent(username)}/` +
     `${photo ? 'photo' : 'video'}/${id}`
-  )
-}
-
-function slideCover(
-  item
-) {
-  const first =
-    Array.isArray(
-      item
-        ?.imagePost
-        ?.images
-    )
-      ? item.imagePost.images[0]
-      : null
-
-  return firstUrl(
-    first
-      ?.imageURL
-      ?.urlList,
-    first
-      ?.displayImage
-      ?.urlList,
-    first
-      ?.ownerWatermarkImage
-      ?.urlList
   )
 }
 
@@ -288,9 +255,7 @@ function normalizeTikTokItem(
     )
 
   if (
-    !/^\d{8,}$/.test(
-      id
-    )
+    !/^\d{8,}$/.test(id)
   ) {
     return null
   }
@@ -313,8 +278,8 @@ function normalizeTikTokItem(
     safeHttpUrl(
       item.shareUrl ||
       item.share_url ||
-      item.url ||
       item.webVideoUrl ||
+      item.url ||
       ''
     ) ||
     postUrl({
@@ -338,30 +303,10 @@ function normalizeTikTokItem(
     item.statsV2 ||
     {}
 
-  const thumbnail =
-    firstUrl(
-      slideCover(item),
-      video
-        ?.cover,
-      video
-        ?.originCover,
-      video
-        ?.dynamicCover,
-      video
-        ?.coverUrl,
-      video
-        ?.coverUrlList,
-      item
-        ?.cover,
-      item
-        ?.thumbnail,
-      item
-        ?.thumbnailUrl
-    )
-
   return {
     id,
     url,
+
     type:
       photo
         ? 'slide'
@@ -382,7 +327,19 @@ function normalizeTikTokItem(
         260
       ),
 
-    thumbnail,
+    thumbnail:
+      firstUrl(
+        slideCover(item),
+        video.cover,
+        video.originCover,
+        video.dynamicCover,
+        video.coverUrl,
+        video.coverUrlList,
+        video.cover?.url_list,
+        item.cover,
+        item.thumbnail,
+        item.thumbnailUrl
+      ),
 
     views:
       Number(
@@ -411,14 +368,48 @@ function normalizeTikTokItem(
   }
 }
 
-function collectFromJson(
-  root
+function uniqueItems(
+  values
 ) {
+  const seen =
+    new Set()
+
   const result =
     []
 
-  const seenIds =
-    new Set()
+  for (
+    const raw
+    of values
+  ) {
+    const item =
+      normalizeTikTokItem(raw)
+
+    if (
+      !item ||
+      seen.has(item.id)
+    ) {
+      continue
+    }
+
+    seen.add(item.id)
+    result.push(item)
+
+    if (
+      result.length >=
+      MAX_RESULTS
+    ) {
+      break
+    }
+  }
+
+  return result
+}
+
+function collectFromJson(
+  root
+) {
+  const rawItems =
+    []
 
   const seenObjects =
     new WeakSet()
@@ -430,8 +421,8 @@ function collectFromJson(
     if (
       !value ||
       depth > 18 ||
-      result.length >=
-        MAX_RESULTS
+      rawItems.length >=
+        MAX_RESULTS * 5
     ) {
       return
     }
@@ -444,48 +435,31 @@ function collectFromJson(
     }
 
     if (
-      seenObjects.has(
-        value
-      )
+      seenObjects.has(value)
     ) {
       return
     }
 
-    seenObjects.add(
-      value
-    )
-
-    const normalized =
-      normalizeTikTokItem(
-        value
-      )
+    seenObjects.add(value)
 
     if (
-      normalized &&
-      !seenIds.has(
-        normalized.id
+      value.itemStruct ||
+      value.awemeInfo ||
+      value.aweme_info ||
+      (
+        value.id &&
+        (
+          value.video ||
+          value.imagePost ||
+          value.image_post_info
+        )
       )
     ) {
-      seenIds.add(
-        normalized.id
-      )
-
-      result.push(
-        normalized
-      )
-
-      if (
-        result.length >=
-        MAX_RESULTS
-      ) {
-        return
-      }
+      rawItems.push(value)
     }
 
     if (
-      Array.isArray(
-        value
-      )
+      Array.isArray(value)
     ) {
       for (
         const child
@@ -495,13 +469,6 @@ function collectFromJson(
           child,
           depth + 1
         )
-
-        if (
-          result.length >=
-          MAX_RESULTS
-        ) {
-          return
-        }
       }
 
       return
@@ -509,277 +476,651 @@ function collectFromJson(
 
     for (
       const child
-      of Object.values(
-        value
-      )
+      of Object.values(value)
     ) {
       visit(
         child,
         depth + 1
       )
-
-      if (
-        result.length >=
-        MAX_RESULTS
-      ) {
-        return
-      }
     }
   }
 
   visit(root)
 
-  return result
+  return uniqueItems(
+    rawItems
+  )
 }
 
-function decodeHtmlJson(
-  raw
+function cacheKey(
+  query
 ) {
-  if (!raw) {
+  return cleanText(
+    query,
+    120
+  ).toLowerCase()
+}
+
+function readCache(
+  query
+) {
+  const key =
+    cacheKey(query)
+
+  const entry =
+    cache.get(key)
+
+  if (!entry) {
     return null
   }
 
-  const text =
-    String(raw)
-      .trim()
-
-  if (!text) {
+  if (
+    Date.now() -
+      entry.createdAt >
+    CACHE_TTL_MS
+  ) {
+    cache.delete(key)
     return null
+  }
+
+  return {
+    ...entry.value,
+    cached: true
+  }
+}
+
+function writeCache(
+  query,
+  value
+) {
+  cache.set(
+    cacheKey(query),
+    {
+      value,
+      createdAt:
+        Date.now()
+    }
+  )
+}
+
+function looksBlockedText(
+  value
+) {
+  const text =
+    String(value || '')
+      .toLowerCase()
+
+  return (
+    text.includes(
+      'secsdk-captcha'
+    ) ||
+    text.includes(
+      'verify to continue'
+    ) ||
+    text.includes(
+      'captcha'
+    ) ||
+    text.includes(
+      'too many requests'
+    ) ||
+    text.includes(
+      'access denied'
+    )
+  )
+}
+
+function browserCandidates() {
+  return [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    process.env.CHROME_PATH,
+    process.env.CHROMIUM_PATH,
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser'
+  ]
+    .filter(Boolean)
+    .filter(
+      path =>
+        existsSync(path)
+    )
+}
+
+async function chromiumExecutable() {
+  const local =
+    browserCandidates()[0]
+
+  if (local) {
+    return {
+      path: local,
+      source:
+        'system'
+    }
   }
 
   try {
-    return JSON.parse(
-      text
-    )
-  } catch {
-    return null
-  }
-}
+    const path =
+      await chromium.executablePath()
 
-function parseEmbeddedResults(
-  html
-) {
-  const $ =
-    cheerio.load(
-      String(
-        html || ''
+    if (
+      path &&
+      existsSync(path)
+    ) {
+      return {
+        path,
+        source:
+          'sparticuz'
+      }
+    }
+  } catch (
+    error
+  ) {
+    throw new Error(
+      'TIKTOK_BROWSER_BINARY:' +
+      cleanText(
+        error?.message ||
+        error,
+        300
       )
     )
+  }
 
-  const selectors = [
-    'script#__UNIVERSAL_DATA_FOR_REHYDRATION__',
-    'script#SIGI_STATE',
-    'script#__NEXT_DATA__',
-    'script[type="application/json"]'
+  throw new Error(
+    'TIKTOK_BROWSER_BINARY_NOT_FOUND'
+  )
+}
+
+async function getBrowser() {
+  if (
+    browserPromise
+  ) {
+    return browserPromise
+  }
+
+  browserPromise =
+    (
+      async () => {
+        const executable =
+          await chromiumExecutable()
+
+        const args =
+          [
+            ...chromium.args,
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--lang=id-ID'
+          ]
+
+        const browser =
+          await puppeteer.launch({
+            executablePath:
+              executable.path,
+
+            args:
+              [...new Set(args)],
+
+            headless:
+              'shell',
+
+            defaultViewport: {
+              width: 1365,
+              height: 900,
+              deviceScaleFactor: 1
+            }
+          })
+
+        console.log(
+          '[TIKTOK_SEARCH] browser ready:',
+          executable.source
+        )
+
+        browser.once(
+          'disconnected',
+          () => {
+            browserPromise = null
+          }
+        )
+
+        return browser
+      }
+    )()
+      .catch(
+        error => {
+          browserPromise = null
+          throw new Error(
+            'TIKTOK_BROWSER_LAUNCH:' +
+            cleanText(
+              error?.message ||
+              error,
+              400
+            )
+          )
+        }
+      )
+
+  return browserPromise
+}
+
+async function wait(
+  ms
+) {
+  await new Promise(
+    resolve =>
+      setTimeout(
+        resolve,
+        ms
+      )
+  )
+}
+
+function extractApiItems(
+  payload
+) {
+  if (
+    !payload ||
+    typeof payload !==
+      'object'
+  ) {
+    return []
+  }
+
+  const candidates = [
+    ...(Array.isArray(payload.item_list)
+      ? payload.item_list
+      : []),
+
+    ...(Array.isArray(payload.itemList)
+      ? payload.itemList
+      : []),
+
+    ...(Array.isArray(payload.data)
+      ? payload.data
+      : [])
   ]
 
-  const seen =
-    new Set()
+  const normalized =
+    uniqueItems(candidates)
 
-  const items =
-    []
-
-  for (
-    const selector
-    of selectors
+  if (
+    normalized.length
   ) {
-    $(
-      selector
-    ).each(
-      (
-        _,
-        element
-      ) => {
-        if (
-          items.length >=
-          MAX_RESULTS
-        ) {
-          return
-        }
+    return normalized
+  }
 
-        const raw =
-          $(element)
-            .html()
+  return collectFromJson(
+    payload
+  )
+}
 
-        if (
-          !raw ||
-          seen.has(raw)
-        ) {
-          return
-        }
-
-        seen.add(raw)
-
-        const json =
-          decodeHtmlJson(
-            raw
-          )
-
-        if (!json) {
-          return
-        }
+async function domItems(
+  page
+) {
+  const raw =
+    await page.$$eval(
+      'a[href*="/video/"], a[href*="/photo/"]',
+      anchors => {
+        const out = []
+        const seen =
+          new Set()
 
         for (
-          const item
-          of collectFromJson(
-            json
-          )
+          const anchor
+          of anchors
         ) {
+          const href =
+            anchor.href
+
           if (
-            items.some(
-              existing =>
-                existing.id ===
-                item.id
-            )
+            !href ||
+            seen.has(href)
           ) {
             continue
           }
 
-          items.push(
-            item
-          )
+          const match =
+            href.match(
+              /\/@([^/]+)\/(video|photo)\/(\d{8,})/
+            )
+
+          if (!match) {
+            continue
+          }
+
+          seen.add(href)
+
+          const card =
+            anchor.closest(
+              'div'
+            ) ||
+            anchor.parentElement
+
+          const image =
+            anchor.querySelector(
+              'img'
+            ) ||
+            card?.querySelector(
+              'img'
+            )
+
+          const text =
+            (
+              card?.innerText ||
+              anchor.innerText ||
+              image?.alt ||
+              ''
+            )
+              .replace(
+                /\s+/g,
+                ' '
+              )
+              .trim()
+
+          out.push({
+            id:
+              match[3],
+
+            shareUrl:
+              href,
+
+            author: {
+              uniqueId:
+                decodeURIComponent(
+                  match[1]
+                )
+            },
+
+            desc:
+              text,
+
+            imagePost:
+              match[2] ===
+                'photo'
+                ? {
+                    images: []
+                  }
+                : undefined,
+
+            thumbnail:
+              image?.currentSrc ||
+              image?.src ||
+              ''
+          })
 
           if (
-            items.length >=
-            MAX_RESULTS
+            out.length >=
+            12
           ) {
             break
           }
         }
+
+        return out
       }
     )
 
-    if (
-      items.length >=
-      MAX_RESULTS
-    ) {
-      break
-    }
-  }
-
-  return items
+  return uniqueItems(raw)
 }
 
-function normalizeEscapedHtml(
-  html
+async function searchTikTokBrowser(
+  query
 ) {
-  return String(
-    html || ''
-  )
-    .replace(
-      /\\u002F/gi,
-      '/'
-    )
-    .replace(
-      /\\u0026/gi,
-      '&'
-    )
-    .replace(
-      /\\\//g,
-      '/'
-    )
-}
+  const browser =
+    await getBrowser()
 
-function parseLinkFallback(
-  html
-) {
-  const source =
-    normalizeEscapedHtml(
-      html
-    )
+  const page =
+    await browser.newPage()
 
-  const result =
+  const apiPayloads =
     []
 
-  const seen =
-    new Set()
+  let apiResponseSeen =
+    false
 
-  const patterns = [
-    /https?:\/\/(?:www\.)?tiktok\.com\/@([A-Za-z0-9._-]+)\/(video|photo)\/(\d{8,})/gi,
-    /\/@([A-Za-z0-9._-]+)\/(video|photo)\/(\d{8,})/gi
-  ]
-
-  for (
-    const pattern
-    of patterns
-  ) {
-    let match
-
-    while (
-      (
-        match =
-          pattern.exec(
-            source
-          )
-      ) &&
-      result.length <
-        MAX_RESULTS
-    ) {
-      const username =
-        cleanText(
-          match[1],
-          80
-        )
-
-      const type =
-        match[2]
-          .toLowerCase()
-
-      const id =
-        match[3]
+  const onResponse =
+    async response => {
+      const url =
+        response.url()
 
       if (
-        seen.has(
-          id
+        !url.includes(
+          '/api/search/'
         )
       ) {
-        continue
+        return
       }
 
-      seen.add(id)
+      apiResponseSeen = true
 
-      result.push({
-        id,
-        url:
-          postUrl({
-            id,
-            username,
-            photo:
-              type ===
-              'photo'
-          }),
+      if (
+        response.status() !==
+        200
+      ) {
+        return
+      }
 
-        type:
-          type ===
-          'photo'
-            ? 'slide'
-            : 'video',
+      try {
+        const type =
+          response.headers()[
+            'content-type'
+          ] ||
+          ''
 
-        username,
-        nickname:
-          '',
-        caption:
-          '',
-        thumbnail:
-          '',
-        views:
-          NaN,
-        likes:
-          NaN,
-        comments:
-          NaN
-      })
+        if (
+          !type.includes(
+            'json'
+          )
+        ) {
+          return
+        }
+
+        const payload =
+          await response.json()
+
+        const items =
+          extractApiItems(
+            payload
+          )
+
+        if (
+          items.length
+        ) {
+          apiPayloads.push(
+            ...items
+          )
+        }
+      } catch {}
+    }
+
+  page.on(
+    'response',
+    onResponse
+  )
+
+  try {
+    await page.setUserAgent(
+      DESKTOP_UA
+    )
+
+    await page.setExtraHTTPHeaders({
+      'Accept-Language':
+        'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7'
+    })
+
+    await page.setRequestInterception(
+      true
+    )
+
+    page.on(
+      'request',
+      request => {
+        const type =
+          request.resourceType()
+
+        if (
+          [
+            'media',
+            'font'
+          ].includes(type)
+        ) {
+          request.abort()
+          return
+        }
+
+        request.continue()
+      }
+    )
+
+    const searchUrl =
+      'https://www.tiktok.com/search?q=' +
+      encodeURIComponent(query)
+
+    await page.goto(
+      searchUrl,
+      {
+        waitUntil:
+          'domcontentloaded',
+        timeout:
+          SEARCH_TIMEOUT_MS
+      }
+    )
+
+    const firstProbe =
+      await page.evaluate(
+        () => ({
+          title:
+            document.title,
+          body:
+            document.body
+              ?.innerText
+              ?.slice(
+                0,
+                2500
+              ) ||
+            '',
+          html:
+            document.documentElement
+              ?.innerHTML
+              ?.slice(
+                0,
+                8000
+              ) ||
+            ''
+        })
+      )
+
+    if (
+      looksBlockedText(
+        `${firstProbe.title}\n${firstProbe.body}\n${firstProbe.html}`
+      )
+    ) {
+      throw new Error(
+        'TIKTOK_BROWSER_CHALLENGE'
+      )
+    }
+
+    const started =
+      Date.now()
+
+    let items =
+      uniqueItems(
+        apiPayloads
+      )
+
+    while (
+      !items.length &&
+      Date.now() -
+        started <
+        API_WAIT_MS
+    ) {
+      await wait(750)
+
+      items =
+        uniqueItems(
+          apiPayloads
+        )
+
+      if (
+        items.length
+      ) {
+        break
+      }
+
+      const fromDom =
+        await domItems(page)
+
+      if (
+        fromDom.length
+      ) {
+        return {
+          items:
+            fromDom,
+          strategy:
+            'browser-dom',
+          apiResponseSeen
+        }
+      }
     }
 
     if (
-      result.length >=
-      MAX_RESULTS
+      items.length
     ) {
-      break
+      return {
+        items,
+        strategy:
+          'browser-api',
+        apiResponseSeen
+      }
     }
-  }
 
-  return result
+    const fromDom =
+      await domItems(page)
+
+    if (
+      fromDom.length
+    ) {
+      return {
+        items:
+          fromDom,
+        strategy:
+          'browser-dom',
+        apiResponseSeen
+      }
+    }
+
+    throw new Error(
+      apiResponseSeen
+        ? 'TIKTOK_BROWSER_API_EMPTY'
+        : 'TIKTOK_BROWSER_NO_RESULTS'
+    )
+  } catch (
+    error
+  ) {
+    if (
+      String(
+        error?.name ||
+        ''
+      ) ===
+      'TimeoutError'
+    ) {
+      throw new Error(
+        'TIKTOK_BROWSER_TIMEOUT'
+      )
+    }
+
+    throw error
+  } finally {
+    page.off(
+      'response',
+      onResponse
+    )
+
+    await page.close()
+      .catch(
+        () => {}
+      )
+  }
 }
 
 function searchHeaders() {
@@ -800,48 +1141,8 @@ function searchHeaders() {
       'no-cache',
 
     Referer:
-      'https://www.tiktok.com/',
-
-    'Sec-Fetch-Dest':
-      'document',
-
-    'Sec-Fetch-Mode':
-      'navigate',
-
-    'Sec-Fetch-Site':
-      'same-origin',
-
-    'Upgrade-Insecure-Requests':
-      '1'
+      'https://www.tiktok.com/'
   }
-}
-
-function looksBlocked(
-  html
-) {
-  const text =
-    String(
-      html || ''
-    )
-      .toLowerCase()
-
-  return (
-    text.includes(
-      'secsdk-captcha'
-    ) ||
-    text.includes(
-      'captcha'
-    ) ||
-    text.includes(
-      'verify to continue'
-    ) ||
-    text.includes(
-      'too many requests'
-    ) ||
-    text.includes(
-      'access denied'
-    )
-  )
 }
 
 async function fetchWithTimeout(
@@ -873,189 +1174,148 @@ async function fetchWithTimeout(
       }
     )
   } finally {
-    clearTimeout(
-      timer
-    )
+    clearTimeout(timer)
   }
 }
 
-async function enrichWithOEmbed(
-  item
+function parseEmbeddedResults(
+  html
 ) {
-  if (
-    item.thumbnail &&
-    item.caption &&
-    item.username
+  const $ =
+    cheerio.load(
+      String(html || '')
+    )
+
+  const selectors = [
+    'script#__UNIVERSAL_DATA_FOR_REHYDRATION__',
+    'script#SIGI_STATE',
+    'script#__NEXT_DATA__',
+    'script[type="application/json"]'
+  ]
+
+  const items =
+    []
+
+  const seenScripts =
+    new Set()
+
+  for (
+    const selector
+    of selectors
   ) {
-    return item
-  }
-
-  try {
-    const endpoint =
-      'https://www.tiktok.com/oembed?url=' +
-      encodeURIComponent(
-        item.url
-      )
-
-    const response =
-      await fetchWithTimeout(
-        endpoint,
-        {
-          timeoutMs:
-            OEMBED_TIMEOUT_MS,
-
-          headers: {
-            'User-Agent':
-              DESKTOP_UA,
-
-            Accept:
-              'application/json,text/plain,*/*'
-          }
+    $(
+      selector
+    ).each(
+      (
+        _,
+        element
+      ) => {
+        if (
+          items.length >=
+          MAX_RESULTS
+        ) {
+          return
         }
+
+        const raw =
+          $(element).html()
+
+        if (
+          !raw ||
+          seenScripts.has(raw)
+        ) {
+          return
+        }
+
+        seenScripts.add(raw)
+
+        try {
+          const json =
+            JSON.parse(
+              raw
+            )
+
+          items.push(
+            ...collectFromJson(
+              json
+            )
+          )
+        } catch {}
+      }
+    )
+  }
+
+  return uniqueItems(items)
+}
+
+function parseLinkFallback(
+  html
+) {
+  const source =
+    String(html || '')
+      .replace(
+        /\\u002F/gi,
+        '/'
+      )
+      .replace(
+        /\\\//g,
+        '/'
       )
 
-    if (!response.ok) {
-      return item
-    }
+  const raw =
+    []
 
-    const json =
-      await response.json()
+  const regex =
+    /https?:\/\/(?:www\.)?tiktok\.com\/@([A-Za-z0-9._-]+)\/(video|photo)\/(\d{8,})/gi
 
-    return {
-      ...item,
+  let match
 
-      thumbnail:
-        item.thumbnail ||
-        safeHttpUrl(
-          json
-            ?.thumbnail_url
-        ),
-
-      caption:
-        item.caption ||
-        cleanText(
-          json
-            ?.title ||
-          '',
-          260
-        ),
-
-      username:
-        item.username ||
-        cleanText(
-          json
-            ?.author_unique_id ||
-          json
-            ?.author_name ||
-          '',
-          80
-        ).replace(
-          /^@+/,
-          ''
-        ),
-
-      nickname:
-        item.nickname ||
-        cleanText(
-          json
-            ?.author_name ||
-          '',
-          100
-        )
-    }
-  } catch {
-    return item
-  }
-}
-
-function cacheKey(
-  query
-) {
-  return cleanText(
-    query,
-    120
-  )
-    .toLowerCase()
-}
-
-function readCache(
-  query
-) {
-  const key =
-    cacheKey(
-      query
-    )
-
-  const entry =
-    cache.get(
-      key
-    )
-
-  if (!entry) {
-    return null
-  }
-
-  if (
-    Date.now() -
-      entry.createdAt >
-    CACHE_TTL_MS
+  while (
+    (
+      match =
+        regex.exec(source)
+    ) &&
+    raw.length <
+      MAX_RESULTS * 2
   ) {
-    cache.delete(
-      key
-    )
+    raw.push({
+      id:
+        match[3],
 
-    return null
+      shareUrl:
+        match[0],
+
+      author: {
+        uniqueId:
+          match[1]
+      },
+
+      imagePost:
+        match[2] ===
+          'photo'
+          ? {
+              images: []
+            }
+          : undefined
+    })
   }
 
-  return entry.value
+  return uniqueItems(raw)
 }
 
-function writeCache(
-  query,
-  value
-) {
-  cache.set(
-    cacheKey(query),
-    {
-      value,
-      createdAt:
-        Date.now()
-    }
-  )
-}
-
-async function searchTikTokWeb(
+async function searchTikTokWebFallback(
   query
 ) {
-  const cached =
-    readCache(
-      query
-    )
-
-  if (cached) {
-    return {
-      ...cached,
-      cached:
-        true
-    }
-  }
-
-  const searchUrl =
-    'https://www.tiktok.com/search?q=' +
-    encodeURIComponent(
-      query
-    )
-
   let response
 
   try {
     response =
       await fetchWithTimeout(
-        searchUrl,
+        'https://www.tiktok.com/search?q=' +
+        encodeURIComponent(query),
         {
           timeoutMs:
             SEARCH_TIMEOUT_MS,
-
           headers:
             searchHeaders()
         }
@@ -1096,9 +1356,7 @@ async function searchTikTokWeb(
     await response.text()
 
   if (
-    looksBlocked(
-      html
-    )
+    looksBlockedText(html)
   ) {
     throw new Error(
       'TIKTOK_SEARCH_CHALLENGE'
@@ -1111,71 +1369,241 @@ async function searchTikTokWeb(
     )
 
   let strategy =
-    'embedded-json'
+    'direct-embedded-json'
 
-  if (!items.length) {
+  if (
+    !items.length
+  ) {
     items =
       parseLinkFallback(
         html
       )
 
     strategy =
-      'html-link-fallback'
+      'direct-html-links'
   }
 
-  if (!items.length) {
+  if (
+    !items.length
+  ) {
     throw new Error(
       'TIKTOK_SEARCH_PARSE_EMPTY'
     )
   }
 
-  const enriched =
-    await Promise.all(
-      items
-        .slice(
-          0,
-          MAX_RESULTS
+  return {
+    items,
+    strategy
+  }
+}
+
+async function enrichWithOEmbed(
+  item
+) {
+  if (
+    item.thumbnail &&
+    item.caption &&
+    item.username
+  ) {
+    return item
+  }
+
+  try {
+    const response =
+      await fetchWithTimeout(
+        'https://www.tiktok.com/oembed?url=' +
+        encodeURIComponent(
+          item.url
+        ),
+        {
+          timeoutMs:
+            OEMBED_TIMEOUT_MS,
+
+          headers: {
+            'User-Agent':
+              DESKTOP_UA,
+
+            Accept:
+              'application/json,text/plain,*/*'
+          }
+        }
+      )
+
+    if (
+      !response.ok
+    ) {
+      return item
+    }
+
+    const json =
+      await response.json()
+
+    return {
+      ...item,
+
+      thumbnail:
+        item.thumbnail ||
+        safeHttpUrl(
+          json?.thumbnail_url
+        ),
+
+      caption:
+        item.caption ||
+        cleanText(
+          json?.title ||
+          '',
+          260
+        ),
+
+      username:
+        item.username ||
+        cleanText(
+          json?.author_unique_id ||
+          json?.author_name ||
+          '',
+          80
+        ).replace(
+          /^@+/,
+          ''
+        ),
+
+      nickname:
+        item.nickname ||
+        cleanText(
+          json?.author_name ||
+          '',
+          100
         )
-        .map(
-          enrichWithOEmbed
-        )
+    }
+  } catch {
+    return item
+  }
+}
+
+async function searchTikTokSmart(
+  query
+) {
+  const cached =
+    readCache(query)
+
+  if (cached) {
+    return cached
+  }
+
+  let browserError =
+    null
+
+  try {
+    const browserResult =
+      await searchTikTokBrowser(
+        query
+      )
+
+    const enriched =
+      await Promise.all(
+        browserResult.items
+          .slice(
+            0,
+            MAX_RESULTS
+          )
+          .map(
+            enrichWithOEmbed
+          )
+      )
+
+    const result = {
+      query:
+        cleanText(
+          query,
+          120
+        ),
+
+      items:
+        enriched,
+
+      strategy:
+        browserResult.strategy,
+
+      cached:
+        false
+    }
+
+    writeCache(
+      query,
+      result
     )
 
-  const finalItems =
-    enriched.filter(
-      item =>
-        item.url &&
-        item.id
-    )
+    return result
+  } catch (
+    error
+  ) {
+    browserError =
+      error
 
-  if (!finalItems.length) {
-    throw new Error(
-      'TIKTOK_SEARCH_PARSE_EMPTY'
+    console.warn(
+      '[TIKTOK_SEARCH] browser mode:',
+      error?.message ||
+      error
     )
   }
 
-  const result = {
-    query:
-      cleanText(
-        query,
-        120
-      ),
+  try {
+    const direct =
+      await searchTikTokWebFallback(
+        query
+      )
 
-    items:
-      finalItems,
+    const enriched =
+      await Promise.all(
+        direct.items
+          .slice(
+            0,
+            MAX_RESULTS
+          )
+          .map(
+            enrichWithOEmbed
+          )
+      )
 
-    strategy,
+    const result = {
+      query:
+        cleanText(
+          query,
+          120
+        ),
 
-    cached:
-      false
+      items:
+        enriched,
+
+      strategy:
+        direct.strategy,
+
+      cached:
+        false
+    }
+
+    writeCache(
+      query,
+      result
+    )
+
+    return result
+  } catch (
+    directError
+  ) {
+    const error =
+      new Error(
+        'TIKTOK_SEARCH_ALL_METHODS_FAILED'
+      )
+
+    error.browserError =
+      browserError
+
+    error.directError =
+      directError
+
+    throw error
   }
-
-  writeCache(
-    query,
-    result
-  )
-
-  return result
 }
 
 function cardBody(
@@ -1199,17 +1627,13 @@ function cardBody(
           'Unknown'
         )
 
-  const stats = [
-    `♥ ${compactNumber(item.likes)}`,
-    `💬 ${compactNumber(item.comments)}`,
-    `▶ ${compactNumber(item.views)}`
-  ]
-
   return (
     `*${index + 1}. ${cleanText(title, 120)}*\n\n` +
     `👤 ${cleanText(author, 90)}\n` +
     `${item.type === 'slide' ? '🖼️ Slide' : '🎬 Video'}\n` +
-    stats.join('  •  ')
+    `♥ ${compactNumber(item.likes)}  •  ` +
+    `💬 ${compactNumber(item.comments)}  •  ` +
+    `▶ ${compactNumber(item.views)}`
   )
 }
 
@@ -1241,13 +1665,9 @@ async function makeCard({
 }) {
   const build =
     async media => {
-      let card =
-        new Button(
-          sock
-        )
-          .setImage(
-            media
-          )
+      const card =
+        new Button(sock)
+          .setImage(media)
           .setBody(
             cardBody(
               item,
@@ -1309,8 +1729,7 @@ async function sendCarousel({
   result,
   prefix
 }) {
-  const cards =
-    []
+  const cards = []
 
   for (
     let index = 0;
@@ -1330,25 +1749,21 @@ async function sendCarousel({
   }
 
   const carousel =
-    new Carousel(
-      sock
-    )
+    new Carousel(sock)
       .setBody(
         `✦ *NEXA • TIKTOK SEARCH*\n\n` +
         `🔎 “${cleanText(result.query, 80)}”\n` +
         `📦 ${result.items.length} hasil ditemukan`
       )
       .setFooter(
-        `Geser hasil • Download memakai TikTok Smart V3` +
+        `Geser hasil • Download → TikTok Smart V3 • ${result.strategy}` +
         (
           result.cached
             ? ' • cache'
             : ''
         )
       )
-      .addCard(
-        cards
-      )
+      .addCard(cards)
 
   await carousel.send(
     jid
@@ -1360,14 +1775,14 @@ function helpText(
 ) {
   return (
     `✦ *NEXA • TIKTOK SEARCH*\n\n` +
-    `Cari video TikTok langsung dari web search.\n\n` +
+    `Cari TikTok dengan browser-session, lalu tampilkan hasil sebagai carousel.\n\n` +
     `Contoh:\n` +
     `*${prefix}tiktoksearch Elaina*\n\n` +
-    `Button *Download* diteruskan ke downloader TikTok NEXA yang sudah ada.`
+    `Button *Download* tetap memakai downloader TikTok NEXA yang sudah ada.`
   )
 }
 
-function errorText(
+function friendlyMethodError(
   error
 ) {
   const code =
@@ -1377,11 +1792,38 @@ function errorText(
     )
 
   if (
-    code ===
-    'TIKTOK_SEARCH_TIMEOUT'
+    /TIKTOK_BROWSER_(BINARY|LAUNCH)/
+      .test(code)
   ) {
     return (
-      'TikTok Search terlalu lama merespons. Coba lagi sebentar.'
+      'browser Chromium gagal dinyalakan di container'
+    )
+  }
+
+  if (
+    /TIKTOK_BROWSER_CHALLENGE/
+      .test(code)
+  ) {
+    return (
+      'browser mendapat challenge dari TikTok'
+    )
+  }
+
+  if (
+    /TIKTOK_BROWSER_TIMEOUT/
+      .test(code)
+  ) {
+    return (
+      'browser timeout saat membuka TikTok'
+    )
+  }
+
+  if (
+    /TIKTOK_BROWSER_(API_EMPTY|NO_RESULTS)/
+      .test(code)
+  ) {
+    return (
+      'browser terbuka, tapi hasil search tidak terbaca'
     )
   }
 
@@ -1390,23 +1832,40 @@ function errorText(
       .test(code)
   ) {
     return (
-      'TikTok Search menolak request dari server/VPS saat ini. ' +
-      'Downloader `.tiktok` tetap tidak terpengaruh.'
+      'fallback HTTP ditolak TikTok'
     )
   }
 
   if (
-    code ===
-    'TIKTOK_SEARCH_PARSE_EMPTY'
+    /TIKTOK_SEARCH_PARSE_EMPTY/
+      .test(code)
   ) {
     return (
-      'Halaman Search terbuka, tapi hasilnya tidak ada di HTML/embedded data yang bisa dibaca. ' +
-      'Kemungkinan layout/proteksi TikTok berubah.'
+      'fallback HTTP tidak menemukan data hasil'
     )
   }
 
   if (
-    code ===
+    /TIKTOK_SEARCH_TIMEOUT/
+      .test(code)
+  ) {
+    return (
+      'fallback HTTP timeout'
+    )
+  }
+
+  return cleanText(
+    code ||
+    'unknown error',
+    160
+  )
+}
+
+function errorText(
+  error
+) {
+  if (
+    error?.message ===
     'TIKTOK_SEARCH_CARD_MEDIA_MISSING'
   ) {
     return (
@@ -1415,11 +1874,24 @@ function errorText(
   }
 
   if (
-    /^TIKTOK_SEARCH_HTTP_/
-      .test(code)
+    error?.message ===
+    'TIKTOK_SEARCH_ALL_METHODS_FAILED'
   ) {
+    const browser =
+      friendlyMethodError(
+        error.browserError
+      )
+
+    const direct =
+      friendlyMethodError(
+        error.directError
+      )
+
     return (
-      `TikTok Search merespons ${code.replace('TIKTOK_SEARCH_HTTP_', 'HTTP ')}.`
+      `TikTok Search belum tembus dari server ini 😭🗿\n\n` +
+      `🌐 Browser: ${browser}\n` +
+      `📡 Direct fallback: ${direct}\n\n` +
+      `Downloader *.tiktok* tetap aman dan tidak terpengaruh.`
     )
   }
 
@@ -1441,7 +1913,7 @@ export default {
     'SEARCH',
 
   description:
-    'Cari TikTok via web search dengan carousel',
+    'Cari TikTok via browser-session + carousel',
 
   usage:
     '.tiktoksearch <query>',
@@ -1484,7 +1956,7 @@ export default {
           jid,
           {
             text:
-              `⚠️ Link TikTok tidak valid.`
+              '⚠️ Link TikTok tidak valid.'
           },
           {
             quoted:
@@ -1521,9 +1993,7 @@ export default {
         jid,
         {
           text:
-            helpText(
-              prefix
-            )
+            helpText(prefix)
         },
         {
           quoted:
@@ -1538,8 +2008,9 @@ export default {
       jid,
       {
         text:
-          `✦ *NEXA • TIKTOK SEARCH*\n\n` +
-          `🔎 Mencari *${cleanText(query, 80)}* langsung dari TikTok Web...`
+          `✦ *NEXA • TIKTOK SEARCH V2*\n\n` +
+          `🌐 Membuka browser TikTok...\n` +
+          `🔎 Mencari *${cleanText(query, 80)}*`
       },
       {
         quoted:
@@ -1549,7 +2020,7 @@ export default {
 
     try {
       const result =
-        await searchTikTokWeb(
+        await searchTikTokSmart(
           query
         )
 
@@ -1574,17 +2045,21 @@ export default {
       console.error(
         '[TIKTOK_SEARCH]',
         error?.message ||
-        error
+        error,
+
+        error?.browserError?.message ||
+        '',
+
+        error?.directError?.message ||
+        ''
       )
 
       await sock.sendMessage(
         jid,
         {
           text:
-            `⚠️ *NEXA • TIKTOK SEARCH*\n\n` +
-            errorText(
-              error
-            )
+            `⚠️ *NEXA • TIKTOK SEARCH V2*\n\n` +
+            errorText(error)
         },
         {
           quoted:
