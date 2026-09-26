@@ -1,7 +1,9 @@
 // NEXA_INVESTMENT_FOUNDATION_V1
+// NEXA_INVESTMENT_TRADING_V2
 import {
   formatNexium,
   getInvestmentHoldings,
+  getInvestmentMarket,
   getInvestmentPortfolioValue
 } from '../lib/investment.js'
 
@@ -44,6 +46,17 @@ export default {
           isOwner
         })
 
+      const market =
+        new Map(
+          getInvestmentMarket()
+            .map(
+              asset => [
+                asset.key,
+                asset.price
+              ]
+            )
+        )
+
       const holdings =
         getInvestmentHoldings(
           userJid
@@ -57,18 +70,40 @@ export default {
       const assetLines =
         holdings
           .map(
-            item =>
-              `${item.icon} ${item.name}: *${formatNexium(item.quantity)}*`
+            item => {
+              const value =
+                item.quantity *
+                (
+                  market.get(
+                    item.key
+                  ) || 0
+                )
+
+              const avg =
+                item.averageBuyPrice > 0
+                  ? ` • avg ${formatNexium(item.averageBuyPrice)} NX`
+                  : ''
+
+              return (
+                `${item.icon} ${item.name}: *${formatNexium(item.quantity)}*` +
+                ` • ${formatNexium(value)} NX${avg}`
+              )
+            }
           )
           .join(
             '\n'
           )
 
+      const totalWealth =
+        account.nexium +
+        portfolio
+
       const text =
         '💠 *NEXA • NX WALLET*\n' +
         '━━━━━━━━━━━━━━━━━━\n\n' +
         `Nexium Coin: *${formatNexium(account.nexium)} NX*\n` +
-        `Portfolio: *${formatNexium(portfolio)} NX*\n\n` +
+        `Portfolio: *${formatNexium(portfolio)} NX*\n` +
+        `Total aset: *${formatNexium(totalWealth)} NX*\n\n` +
         '*ASET*\n' +
         assetLines
 

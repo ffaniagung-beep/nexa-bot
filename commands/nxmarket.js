@@ -1,26 +1,82 @@
 // NEXA_INVESTMENT_FOUNDATION_V1
+// NEXA_INVESTMENT_TRADING_V2
 import {
   formatNexium,
-  getInvestmentMarket
+  getInvestmentMarket,
+  refreshInvestmentMarketIfDue
 } from '../lib/investment.js'
 
 import {
   prepareInvestmentUser
 } from '../lib/investmentUx.js'
 
-function trendIcon(
+function trend(
   current,
   previous
 ) {
-  if (current > previous) {
-    return '▲'
+  if (!previous) {
+    return {
+      icon: '•',
+      text: '0.00%'
+    }
   }
 
-  if (current < previous) {
-    return '▼'
+  const percent =
+    (
+      (
+        current -
+        previous
+      ) /
+      previous
+    ) * 100
+
+  if (percent > 0) {
+    return {
+      icon: '▲',
+      text:
+        `+${percent.toFixed(2)}%`
+    }
   }
 
-  return '•'
+  if (percent < 0) {
+    return {
+      icon: '▼',
+      text:
+        `${percent.toFixed(2)}%`
+    }
+  }
+
+  return {
+    icon: '•',
+    text: '0.00%'
+  }
+}
+
+function untilText(
+  timestamp
+) {
+  const seconds =
+    Math.max(
+      0,
+      Math.ceil(
+        (
+          timestamp -
+          Date.now()
+        ) /
+        1000
+      )
+    )
+
+  const minutes =
+    Math.floor(
+      seconds /
+      60
+    )
+
+  const remain =
+    seconds % 60
+
+  return `${minutes}m ${remain}s`
 }
 
 export default {
@@ -57,15 +113,29 @@ export default {
           isOwner
         })
 
+      const clock =
+        refreshInvestmentMarketIfDue()
+
       const market =
-        getInvestmentMarket()
+        getInvestmentMarket({
+          refresh: false
+        })
 
       const lines =
         market
           .map(
-            asset =>
-              `${asset.icon} *${asset.name}*\n` +
-              `   ${formatNexium(asset.price)} NX  ${trendIcon(asset.price, asset.previousPrice)}`
+            asset => {
+              const move =
+                trend(
+                  asset.price,
+                  asset.previousPrice
+                )
+
+              return (
+                `${asset.icon} *${asset.name}*\n` +
+                `   ${formatNexium(asset.price)} NX  ${move.icon} ${move.text}`
+              )
+            }
           )
           .join(
             '\n\n'
@@ -76,6 +146,7 @@ export default {
         '━━━━━━━━━━━━━━━━━━\n\n' +
         lines +
         '\n\n' +
+        `⏱ Update berikutnya: *${untilText(clock.nextUpdateAt)}*\n` +
         `💠 Saldo: *${formatNexium(account.nexium)} NX*`
 
       return sock.sendMessage(

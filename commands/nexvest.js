@@ -1,4 +1,5 @@
 // NEXA_INVESTMENT_FOUNDATION_V1
+// NEXA_INVESTMENT_TRADING_V2
 import {
   formatNexium,
   getInvestmentHoldings,
@@ -67,9 +68,13 @@ export default {
         `💠 Nexium Coin: *${formatNexium(account.nexium)} NX*\n` +
         `📊 Nilai Portfolio: *${formatNexium(portfolio)} NX*\n` +
         `📦 Aset dimiliki: *${owned}/5*\n\n` +
-        'Perintah awal:\n' +
+        '*TRADING*\n' +
         '• *.nxmarket* — lihat harga aset\n' +
-        '• *.nxwallet* — lihat saldo & kepemilikan\n\n' +
+        '• *.nxbuy <aset> <jumlah>* — beli aset\n' +
+        '• *.nxsell <aset> <jumlah>* — jual aset\n' +
+        '• *.nxwallet* — saldo & kepemilikan\n\n' +
+        'Contoh: *.nxbuy iron 2*\n' +
+        'Gunakan *all* untuk jumlah maksimum.\n\n' +
         '⛓️ Iron  •  🪙 Gold  •  💎 Diamond\n' +
         '🔷 Nexium Crystal  •  ⚪ Rhodium'
 
@@ -95,7 +100,7 @@ export default {
         {
           text:
             '⚠️ *NEXA • INVESTMENT*\n\n' +
-            'Fondasi investasi belum bisa dibuka. Coba lagi setelah bot direstart.'
+            'Investment belum bisa dibuka. Coba lagi setelah bot direstart.'
         },
         {
           quoted:
