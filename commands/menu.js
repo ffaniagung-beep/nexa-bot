@@ -34,6 +34,7 @@ const MENU_IMAGE =
 
 // =====================================
 // CATEGORY
+// NEXA_INVESTMENT_FOUNDATION_V1
 // =====================================
 
 const CATEGORY_ORDER = [
@@ -43,6 +44,7 @@ const CATEGORY_ORDER = [
   'GAME',
   'MINI GAME',
   'RPG',
+  'INVESTMENT',
   'FUN',
   'MAKER',
   'TOOLS',
@@ -62,6 +64,7 @@ const CATEGORY_ICON = {
   GAME: '🎮',
   'MINI GAME': '🕹️',
   RPG: '⚔️',
+  INVESTMENT: '📈',
   FUN: '🎭',
   MAKER: '🎨',
   TOOLS: '🧰',
@@ -89,6 +92,12 @@ const CATEGORY_ALIAS = {
 
   'MINI_GAME':
     'MINI GAME',
+
+  INVEST:
+    'INVESTMENT',
+
+  INVESTASI:
+    'INVESTMENT',
 
   TOOL:
     'TOOLS',
@@ -564,6 +573,7 @@ const CATEGORY_NOTE = {
   GAME: 'Tantangan kecil, serunya panjang.',
   'MINI GAME': 'Satu ronde lagi?',
   RPG: 'Bangun karakter. Lanjutkan petualangan.',
+  INVESTMENT: 'Bangun portfolio dengan Nexium Coin.',
   FUN: 'Bikin obrolan lebih ramai.',
   MAKER: 'Ubah ide jadi gambar dan stiker.',
   AI: 'Tanya, diskusi, cari inspirasi.',
