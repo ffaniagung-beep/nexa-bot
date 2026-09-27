@@ -1,75 +1,74 @@
-// NEXA_INVESTMENT_NEWS_V4
+// NEXA_INVESTMENT_GROUP_NEWS_V41
 import {
-  getLatestMarketNews,
-  refreshInvestmentMarketIfDue
-} from '../lib/investment.js'
+  formatInvestmentGroupNews,
+  getInvestmentGroupNewsState,
+  getLatestInvestmentGroupNews
+} from '../lib/investmentGroupNews.js'
 
 import {
   prepareInvestmentUser
 } from '../lib/investmentUx.js'
 
-function effectText(news) {
-  const percent =
-    (
-      Math.abs(
-        Number(
-          news?.effectRate
-        ) || 0
-      ) * 100
-    ).toFixed(2)
-
-  const arrow =
-    news?.direction > 0
-      ? '▲'
-      : '▼'
-
-  const mood =
-    news?.direction > 0
-      ? 'Bullish'
-      : 'Bearish'
-
-  return (
-    `${arrow} *${mood}* • ` +
-    `${news?.direction > 0 ? '+' : '-'}${percent}% modifier/tick`
+function formatEta(targetAt) {
+  const seconds = Math.max(
+    0,
+    Math.ceil(
+      (
+        Number(targetAt) -
+        Date.now()
+      ) /
+      1000
+    )
   )
+
+  if (seconds < 60) return `${seconds}s`
+
+  const minutes = Math.floor(seconds / 60)
+
+  if (minutes < 60) return `${minutes}m`
+
+  const hours = Math.floor(minutes / 60)
+  return `${hours}j ${minutes % 60}m`
 }
 
-function statusText(news) {
-  if (news?.active) {
-    const minutes =
-      Math.max(
-        1,
-        Number(
-          news.ticksRemaining
-        ) || 1
-      ) * 5
-
-    return (
-      `🟢 Aktif • ${news.ticksRemaining} tick tersisa ` +
-      `(~${minutes} menit)`
+function formatAge(createdAt) {
+  const seconds = Math.max(
+    0,
+    Math.floor(
+      (
+        Date.now() -
+        Number(createdAt)
+      ) /
+      1000
     )
-  }
+  )
 
-  return '⚪ Selesai • efek sudah tidak aktif'
+  if (seconds < 60) return 'baru saja'
+
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} menit lalu`
+
+  return `${Math.floor(minutes / 60)} jam lalu`
 }
 
 export default {
-  name:
-    'nxnews',
+  name: 'nxnews',
 
   aliases: [
     'nxberita',
     'nxevent'
   ],
 
-  category:
-    'INVESTMENT',
+  category: 'INVESTMENT',
 
   description:
-    'Lihat berita dan event Nexa Market',
+    'Lihat event Investment terakhir di grup ini',
 
   usage:
     '.nxnews',
+
+  groupOnly:
+    true,
 
   async run({
     sock,
@@ -85,88 +84,67 @@ export default {
         isOwner
       })
 
-      const clock =
-        refreshInvestmentMarketIfDue()
+      const state =
+        getInvestmentGroupNewsState(jid)
 
       const news =
-        getLatestMarketNews({
-          refresh:
-            false
-        })
+        getLatestInvestmentGroupNews(jid)
 
       if (!news) {
+        const eta =
+          state?.nextEventAt
+            ? formatEta(state.nextEventAt)
+            : 'acak'
+
         return sock.sendMessage(
           jid,
           {
             text:
-              '📰 *NEXA • MARKET NEWS*\n' +
+              '📰 *NEXA • LOCAL MARKET NEWS*\n' +
               '━━━━━━━━━━━━━━━━━━\n\n' +
-              'Market masih tenang. Belum ada event tercatat.\n\n' +
-              'Event pertama akan muncul pada tick market berikutnya.\n' +
-              '🎮 Berita ini sepenuhnya fiktif di dalam Nexa.'
+              'Belum ada event otomatis di grup ini.\n\n' +
+              `⏳ Perkiraan event pertama: *${eta}*\n` +
+              '🎲 Jadwal setiap grup berbeda dan berubah secara acak.\n\n' +
+              '🌐 Harga tetap memakai satu Nexa Market global.'
           },
           {
-            quoted:
-              msg
+            quoted: msg
           }
         )
       }
 
-      const target =
-        news.assetKey
-          ? `${news.assetIcon} ${news.assetName}`
-          : '🌐 Semua aset'
-
-      const nextSeconds =
-        Math.max(
-          0,
-          Math.ceil(
-            (
-              clock.nextUpdateAt -
-              Date.now()
-            ) /
-            1000
-          )
-        )
-
-      const text =
-        '📰 *NEXA • MARKET NEWS*\n' +
-        '━━━━━━━━━━━━━━━━━━\n\n' +
-        `*${news.title}*\n` +
-        `${news.body}\n\n` +
-        `🎯 Target: *${target}*\n` +
-        `📊 Sentimen: ${effectText(news)}\n` +
-        `⏳ Status: ${statusText(news)}\n` +
-        `🕒 Tick berikutnya: *${Math.floor(nextSeconds / 60)}m ${nextSeconds % 60}s*\n\n` +
-        '🎮 *Catatan:* berita dan market ini sepenuhnya fiktif dalam Nexa.'
+      const next =
+        state?.nextEventAt
+          ? formatEta(state.nextEventAt)
+          : 'acak'
 
       return sock.sendMessage(
         jid,
         {
-          text
+          text:
+            `${formatInvestmentGroupNews(news)}\n\n` +
+            `🕒 Terjadi: *${formatAge(news.createdAt)}*\n` +
+            `🎲 Event grup berikutnya: *~${next}*`
         },
         {
-          quoted:
-            msg
+          quoted: msg
         }
       )
     } catch (error) {
       console.error(
         '[NXNEWS]',
-        error?.message ||
-        error
+        error?.message || error
       )
 
       return sock.sendMessage(
         jid,
         {
           text:
-            '⚠️ *NEXA • MARKET NEWS*\n\n' +
-            'Berita market belum berhasil dibuka.'
+            '⚠️ *NEXA • LOCAL MARKET NEWS*\n\n' +
+            'Berita grup belum berhasil dibuka.'
         },
         {
-          quoted:
-            msg
+          quoted: msg
         }
       )
     }

@@ -21,6 +21,7 @@ import config from './config.js'
 
 
 import { startGroupScheduleService } from './lib/groupSchedule.js'
+import { startInvestmentGroupNewsService } from './lib/investmentGroupNews.js'
 import {
   installChannelPromo
 } from './lib/channelPromo.js'
@@ -1760,6 +1761,11 @@ async function startBotInner() {
   // GROUP SCHEDULE SERVICE V1
   // =====================================
   startGroupScheduleService(
+    sock
+  )
+
+  // NEXA_INVESTMENT_GROUP_NEWS_V41
+  startInvestmentGroupNewsService(
     sock
   )
 
