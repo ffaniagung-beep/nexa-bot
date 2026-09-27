@@ -323,7 +323,7 @@ async function sendChoicePanel({
   const modeLabel =
     session.mode === 'photo'
       ? 'Photo / General'
-      : 'Anime'
+      : 'Anime / Plus'
 
   const body =
     '✅ AI upscale selesai.\n\n' +
@@ -768,7 +768,7 @@ export default {
 
       result =
         await stage(
-          'hdplus/fal-ai',
+          'hdplus/zyvor-ai',
           () =>
             enhancePhotoPlusAI(
               buffer,
