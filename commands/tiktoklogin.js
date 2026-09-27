@@ -165,6 +165,23 @@ export default {
           `🧩 ${code}`
       } else if (
         code.includes(
+          'TIKTOK_SEND_CODE_DISABLED'
+        )
+      ) {
+        text =
+          '🗿 Tombol *Send code* dari TikTok lagi disabled.\n' +
+          'Berarti SMS belum diminta sama sekali 😭'
+      } else if (
+        code.includes(
+          'TIKTOK_SEND_CODE_NOT_CONFIRMED'
+        )
+      ) {
+        text =
+          '📵 NEXA udah klik *Send code*, tapi halaman TikTok nggak pernah masuk state OTP.\n' +
+          'Jadi kemungkinan besar SMS memang *belum dikirim* 😭🗿\n\n' +
+          'Gue kirim screenshot kondisi browser setelah klik biar kelihatan TikTok nahan di mana.'
+      } else if (
+        code.includes(
           'TIKTOK_CHALLENGE'
         )
       ) {
@@ -181,11 +198,27 @@ export default {
           'Kirim *.tiktokotp 123456* kalau SMS sudah masuk.'
       }
 
-      await sock.sendMessage(
-        jid,
-        { text },
-        { quoted: msg }
-      )
+      if (
+        error?.debugScreenshot
+      ) {
+        await sock.sendMessage(
+          jid,
+          {
+            image:
+              error.debugScreenshot,
+
+            caption:
+              text
+          },
+          { quoted: msg }
+        )
+      } else {
+        await sock.sendMessage(
+          jid,
+          { text },
+          { quoted: msg }
+        )
+      }
     } finally {
       release()
     }
