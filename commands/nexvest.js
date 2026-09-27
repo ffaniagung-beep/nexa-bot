@@ -72,7 +72,9 @@ export default {
         '• *.nxmarket* — lihat harga aset\n' +
         '• *.nxbuy <aset> <jumlah>* — beli aset\n' +
         '• *.nxsell <aset> <jumlah>* — jual aset\n' +
-        '• *.nxwallet* — saldo & kepemilikan\n\n' +
+        '• *.nxwallet* — saldo & kepemilikan\n' +
+        '• *.nxgive <tag/reply> <jumlah>* — kirim Nexium\n' +
+        '• *.nxrank* — leaderboard investor\n\n' +
         'Contoh: *.nxbuy iron 2*\n' +
         'Gunakan *all* untuk jumlah maksimum.\n\n' +
         '⛓️ Iron  •  🪙 Gold  •  💎 Diamond\n' +
