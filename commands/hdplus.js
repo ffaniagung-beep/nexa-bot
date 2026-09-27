@@ -1,4 +1,4 @@
-// NEXA_PREMIUM_HDPLUS_V1
+// NEXA_PREMIUM_HDPLUS_V2
 import {
   acquireMaker,
   react,
@@ -44,7 +44,7 @@ export default {
   premiumOnly: true,
 
   description:
-    'HD Premium hingga 4x, maks. sisi 6144 px',
+    'HD+ Premium anime-style, lebih tajam dan lebih besar',
 
   usage:
     '.hd+',
@@ -67,11 +67,11 @@ export default {
         {
           text:
             `💎 Reply foto dengan *${config?.prefix || '.'}hd+*.\n\n` +
-            '✨ Premium HD+\n' +
-            '• Denoise lebih halus\n' +
+            '✨ HD+ Premium\n' +
+            '• Anime4K-style enhance\n' +
             '• Sharpen lebih kuat\n' +
-            '• Upscale hingga 4x\n' +
-            '• Maksimal sisi 6144 px\n\n' +
+            '• Upscale adaptif hingga 4x\n' +
+            '• Dikirim langsung sebagai gambar\n\n' +
             `🎟 Premium: ${HDPLUS_COST} Limit • Owner: gratis 👑`
         },
         {
@@ -88,7 +88,7 @@ export default {
         jid,
         {
           text:
-            '⏳ Proses gambar sedang penuh. Coba lagi setelah job sebelumnya selesai.'
+            '⏳ HD+ sedang penuh. Coba lagi setelah proses sebelumnya selesai.'
         },
         {
           quoted: msg
@@ -171,20 +171,19 @@ export default {
           sock.sendMessage(
             jid,
             {
-              document:
+              image:
                 result.buffer,
 
               mimetype:
                 'image/jpeg',
 
-              fileName:
-                `NEXA-HDPLUS-${Date.now()}.jpg`,
-
               caption:
                 '💎 *NEXA • HD+ PREMIUM*\n\n' +
                 '✅ Enhance selesai.\n' +
-                '✨ Denoise + sharpen premium\n' +
-                '🔍 Upscale hingga 4x (maks. sisi 6144 px)\n' +
+                '🎨 Mode: *Anime4K-style local enhance*\n' +
+                '🔍 Upscale adaptif hingga *4x*\n' +
+                '📨 Dikirim langsung sebagai gambar\n' +
+                '⚠️ Catatan: WhatsApp bisa tetap mengompres sedikit.\n' +
                 `🎟 Biaya: ${
                   job.cost
                     ? `${job.cost} Limit`
