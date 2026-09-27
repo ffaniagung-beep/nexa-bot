@@ -1,3 +1,4 @@
+// NEXA TEXT2IMG V2 + V1 FALLBACK V1
 import {
   acquireMaker,
   react,
@@ -47,14 +48,14 @@ function parseInput(args) {
     const parts = raw
       .split('|')
       .map(part =>
-        String(part || '')
-          .trim()
+        String(part || '').trim()
       )
-      .filter(Boolean)
 
     prompt = parts[0] || ''
     negativePrompt = parts[1] || ''
-    resolution = parts[2] || DEFAULT_RESOLUTION
+    resolution =
+      parts[2] ||
+      DEFAULT_RESOLUTION
   } else {
     const negMatch =
       raw.match(
@@ -96,12 +97,13 @@ function parseInput(args) {
     return null
   }
 
-  resolution = normalizeResolution(resolution)
-
   return {
     prompt,
     negativePrompt,
-    resolution
+    resolution:
+      normalizeResolution(
+        resolution
+      )
   }
 }
 
@@ -111,16 +113,12 @@ function normalizeResolution(value) {
       .trim()
       .toLowerCase()
 
-  if (!text) {
-    return DEFAULT_RESOLUTION
-  }
-
   const aliases = {
-    square: '1024x1024',
-    portrait: '1024x1536',
-    tall: '1024x1536',
-    landscape: '1536x1024',
-    wide: '1536x1024'
+    square: '768x768',
+    portrait: '512x768',
+    tall: '512x768',
+    landscape: '768x512',
+    wide: '768x512'
   }
 
   if (aliases[text]) {
@@ -155,16 +153,12 @@ function isImageBuffer(buffer) {
     return true
   }
 
-  if (
+  return (
     buffer.slice(0, 4)
       .toString() === 'RIFF' &&
     buffer.slice(8, 12)
       .toString() === 'WEBP'
-  ) {
-    return true
-  }
-
-  return false
+  )
 }
 
 function findOutput(value, depth = 0) {
@@ -186,8 +180,14 @@ function findOutput(value, depth = 0) {
       return text
     }
 
-    if (/^[A-Za-z0-9+/=\r\n]+$/.test(text) && text.length > 200) {
-      return `data:image/png;base64,${text.replace(/\s+/g, '')}`
+    if (
+      /^[A-Za-z0-9+/=\r\n]+$/.test(text) &&
+      text.length > 300
+    ) {
+      return (
+        'data:image/png;base64,' +
+        text.replace(/\s+/g, '')
+      )
     }
 
     return null
@@ -196,35 +196,64 @@ function findOutput(value, depth = 0) {
   if (Array.isArray(value)) {
     for (const item of value) {
       const found =
-        findOutput(item, depth + 1)
+        findOutput(
+          item,
+          depth + 1
+        )
+
       if (found) {
         return found
       }
     }
+
     return null
   }
 
   if (typeof value === 'object') {
     const keys = [
-      'result', 'data', 'output', 'image', 'images',
-      'url', 'src', 'href', 'image_url', 'imageUrl',
-      'result_url', 'resultUrl', 'download_url', 'downloadUrl',
-      'b64_json', 'base64', 'base64Image', 'image_base64'
+      'result',
+      'data',
+      'output',
+      'image',
+      'images',
+      'url',
+      'src',
+      'href',
+      'image_url',
+      'imageUrl',
+      'result_url',
+      'resultUrl',
+      'download_url',
+      'downloadUrl',
+      'b64_json',
+      'base64',
+      'base64Image',
+      'image_base64'
     ]
 
     for (const key of keys) {
-      if (key in value) {
-        const found =
-          findOutput(value[key], depth + 1)
-        if (found) {
-          return found
-        }
+      if (!(key in value)) {
+        continue
+      }
+
+      const found =
+        findOutput(
+          value[key],
+          depth + 1
+        )
+
+      if (found) {
+        return found
       }
     }
 
     for (const key of Object.keys(value)) {
       const found =
-        findOutput(value[key], depth + 1)
+        findOutput(
+          value[key],
+          depth + 1
+        )
+
       if (found) {
         return found
       }
@@ -234,10 +263,55 @@ function findOutput(value, depth = 0) {
   return null
 }
 
-async function generateImage({
+async function outputToBuffer(outputRef) {
+  if (
+    /^data:image\//i.test(outputRef)
+  ) {
+    const base64 =
+      outputRef.split(',', 2)[1] || ''
+
+    const buffer =
+      Buffer.from(
+        base64,
+        'base64'
+      )
+
+    if (!isImageBuffer(buffer)) {
+      throw new Error(
+        'FGSI_T2I_BAD_IMAGE'
+      )
+    }
+
+    return buffer
+  }
+
+  const fileRes =
+    await fetchBuffered(
+      outputRef,
+      {},
+      120000,
+      MAX_OUTPUT_BYTES
+    )
+
+  const buffer =
+    Buffer.from(
+      await fileRes.arrayBuffer()
+    )
+
+  if (!isImageBuffer(buffer)) {
+    throw new Error(
+      'FGSI_T2I_BAD_IMAGE'
+    )
+  }
+
+  return buffer
+}
+
+async function requestGenerator({
+  version,
   prompt,
-  negativePrompt,
-  resolution
+  negativePrompt = '',
+  resolution = DEFAULT_RESOLUTION
 }) {
   const key =
     String(
@@ -250,8 +324,13 @@ async function generateImage({
     )
   }
 
+  const endpoint =
+    version === 'v1'
+      ? '/api/ai/text2img/v1'
+      : '/api/ai/text2img/v2'
+
   const url = new URL(
-    '/api/ai/text2img/v2',
+    endpoint,
     FGSI_BASE
   )
 
@@ -263,14 +342,17 @@ async function generateImage({
     'prompt',
     prompt
   )
-  url.searchParams.set(
-    'negativePrompt',
-    negativePrompt
-  )
-  url.searchParams.set(
-    'resolution',
-    resolution
-  )
+
+  if (version === 'v2') {
+    url.searchParams.set(
+      'negativePrompt',
+      negativePrompt
+    )
+    url.searchParams.set(
+      'resolution',
+      resolution
+    )
+  }
 
   const res =
     await fetch(url, {
@@ -285,15 +367,22 @@ async function generateImage({
 
   const type =
     String(
-      res.headers.get('content-type') || ''
+      res.headers.get(
+        'content-type'
+      ) || ''
     ).toLowerCase()
 
-  if (
-    type.startsWith('image/')
-  ) {
-    const buffer = Buffer.from(
-      await res.arrayBuffer()
-    )
+  if (type.startsWith('image/')) {
+    const buffer =
+      Buffer.from(
+        await res.arrayBuffer()
+      )
+
+    if (!res.ok) {
+      throw new Error(
+        `FGSI_T2I_${version.toUpperCase()}_HTTP_${res.status}`
+      )
+    }
 
     if (!isImageBuffer(buffer)) {
       throw new Error(
@@ -303,198 +392,177 @@ async function generateImage({
 
     return {
       buffer,
-      responseType: type,
-      resolution
+      engine:
+        version.toUpperCase(),
+      resolution:
+        version === 'v2'
+          ? resolution
+          : null
     }
   }
 
   const raw =
     await res.text()
 
-  if (!res.ok) {
-    console.error(
-      '[T2I2] error raw:',
-      raw.slice(0, 800)
-    )
-
-    let detail = ''
-
-    try {
-      const errorData =
-        JSON.parse(raw)
-
-      detail = String(
-        errorData?.message ||
-        errorData?.error ||
-        errorData?.msg ||
-        ''
-      ).trim()
-    } catch {}
-
-    if (
-      /failed to get userkey/i
-        .test(detail)
-    ) {
-      throw new Error(
-        'FGSI_USERKEY_FAILED'
-      )
-    }
-
-    throw new Error(
-      detail
-        ? `FGSI_T2I_HTTP_${res.status}:${detail}`
-        : `FGSI_T2I_HTTP_${res.status}`
-    )
-  }
-
-  let outputRef = null
   let parsed = null
 
   try {
     parsed = JSON.parse(raw)
+  } catch {}
 
-    if (
-      parsed?.status === false ||
-      parsed?.success === false
-    ) {
-      const detail = String(
-        parsed?.message ||
-        parsed?.error ||
-        parsed?.msg ||
-        ''
-      ).trim()
+  const message =
+    String(
+      parsed?.message ||
+      parsed?.error ||
+      parsed?.msg ||
+      ''
+    ).trim()
 
-      if (
-        /failed to get userkey/i
-          .test(detail)
-      ) {
-        throw new Error(
-          'FGSI_USERKEY_FAILED'
-        )
-      }
-
-      throw new Error(
-        detail
-          ? `FGSI_T2I_API_ERROR:${detail}`
-          : 'FGSI_T2I_API_ERROR'
+  if (
+    /failed\s+to\s+get\s+userkey/i.test(
+      message
+    )
+  ) {
+    const error =
+      new Error(
+        'FGSI_USERKEY_FAILED'
       )
-    }
 
+    error.fgsiMessage =
+      message
+
+    throw error
+  }
+
+  if (!res.ok) {
+    console.error(
+      `[T2I2:${version}] error raw:`,
+      raw.slice(0, 800)
+    )
+
+    throw new Error(
+      `FGSI_T2I_${version.toUpperCase()}_HTTP_${res.status}`
+    )
+  }
+
+  if (
+    parsed?.status === false ||
+    parsed?.success === false
+  ) {
+    const error =
+      new Error(
+        `FGSI_T2I_${version.toUpperCase()}_API_ERROR`
+      )
+
+    error.fgsiMessage =
+      message
+
+    throw error
+  }
+
+  let outputRef = null
+
+  if (parsed) {
     outputRef =
       findOutput(parsed)
-  } catch (error) {
-    if (
-      String(error?.message || '')
-        .startsWith('FGSI_T2I_API_ERROR')
-    ) {
-      throw error
-    }
-
-    const plain = raw.trim()
+  } else {
+    const plain =
+      raw.trim()
 
     if (
       /^https?:\/\//i.test(plain) ||
       /^data:image\//i.test(plain)
     ) {
-      outputRef = plain
-    } else {
-      console.error(
-        '[T2I2] raw response:',
-        plain.slice(0, 800)
-      )
-
-      throw new Error(
-        'FGSI_T2I_BAD_JSON'
-      )
+      outputRef =
+        plain
     }
   }
 
   if (!outputRef) {
     console.error(
-      '[T2I2] parsed response:',
-      JSON.stringify(parsed)
-        .slice(0, 1000)
+      `[T2I2:${version}] response:`,
+      raw.slice(0, 1000)
     )
 
     throw new Error(
-      'FGSI_T2I_OUTPUT_MISSING'
+      `FGSI_T2I_${version.toUpperCase()}_OUTPUT_MISSING`
     )
   }
 
-  if (
-    /^data:image\//i.test(outputRef)
-  ) {
-    const base64 =
-      outputRef.split(',', 2)[1] || ''
-
-    const buffer = Buffer.from(
-      base64,
-      'base64'
+  const buffer =
+    await outputToBuffer(
+      outputRef
     )
-
-    if (!isImageBuffer(buffer)) {
-      throw new Error(
-        'FGSI_T2I_BAD_IMAGE'
-      )
-    }
-
-    return {
-      buffer,
-      responseType:
-        outputRef.slice(5, outputRef.indexOf(';')) || 'image/png',
-      resolution
-    }
-  }
-
-  const fileRes =
-    await fetchBuffered(
-      outputRef,
-      {},
-      120000,
-      MAX_OUTPUT_BYTES
-    )
-
-  const buffer = Buffer.from(
-    await fileRes.arrayBuffer()
-  )
-
-  if (!isImageBuffer(buffer)) {
-    throw new Error(
-      'FGSI_T2I_BAD_IMAGE'
-    )
-  }
 
   return {
     buffer,
-    responseType:
-      String(fileRes.headers.get('content-type') || '') || 'image/png',
-    resolution
+    engine:
+      version.toUpperCase(),
+    resolution:
+      version === 'v2'
+        ? resolution
+        : null
+  }
+}
+
+async function generateImage(input) {
+  try {
+    return await requestGenerator({
+      version: 'v2',
+      ...input
+    })
+  } catch (error) {
+    if (
+      String(
+        error?.message || ''
+      ) !== 'FGSI_USERKEY_FAILED'
+    ) {
+      throw error
+    }
+
+    console.warn(
+      '[T2I2] V2 gagal dapet userKey -> fallback ke V1'
+    )
+
+    try {
+      const fallback =
+        await requestGenerator({
+          version: 'v1',
+          prompt:
+            input.prompt
+        })
+
+      return {
+        ...fallback,
+        fallback: true,
+        fallbackReason:
+          'FGSI_USERKEY_FAILED'
+      }
+    } catch (fallbackError) {
+      fallbackError.v2Error =
+        error
+
+      throw fallbackError
+    }
   }
 }
 
 function failText(err) {
-  const code = String(
-    err?.code ||
-    err?.message ||
-    ''
-  )
+  const code =
+    String(
+      err?.code ||
+      err?.message ||
+      ''
+    )
 
   if (/FGSI_KEY_MISSING/.test(code)) {
     return (
-      '🔑 API key FGSI belum dipasang, njir.\n' +
-      'Set dulu *FGSI_API_KEY* di server.'
+      '🔑 API key FGSI belum kepasang, njir.\n' +
+      'Set *FGSI_API_KEY* dulu di server.'
     )
   }
 
-  if (/FGSI_USERKEY_FAILED/.test(code)) {
-    return (
-      '🗿 AI-nya lagi kehilangan kunci rumah.\n' +
-      'Backend FGSI gagal dapetin *userKey* 😭\n' +
-      'Ini respons dari server mereka, coba lagi nanti.'
-    )
-  }
-
-  if (/FGSI_T2I_HTTP_403|403/.test(code)) {
+  if (/403/.test(code)) {
     return (
       '🚫 FGSI nolak request-nya.\n' +
       'Cek API key atau limit akun dulu.'
@@ -503,41 +571,59 @@ function failText(err) {
 
   if (/429/.test(code)) {
     return (
-      '😵 Lagi rame, kena limit dulu kayaknya.\n' +
-      'Coba lagi bentar ya.'
+      '😵 Kena rate limit dulu kayaknya.\n' +
+      'Tunggu bentar terus coba lagi.'
     )
   }
 
-  if (/FGSI_T2I_API_ERROR/.test(code)) {
+  if (/FGSI_USERKEY_FAILED/.test(code)) {
     return (
-      '🗿 Prompt-nya ditolak atau AI-nya ngambek.\n' +
-      'Coba ubah prompt / negative prompt-nya.'
+      '🗿 V2 kehilangan kunci rumah, dan fallback V1 juga nggak nyelametin.\n' +
+      'Backend FGSI lagi apes kayaknya 😭'
     )
   }
 
-  if (/FGSI_T2I_BAD_JSON|FGSI_T2I_OUTPUT_MISSING|FGSI_T2I_BAD_IMAGE/.test(code)) {
+  if (/API_ERROR/.test(code)) {
+    const detail =
+      String(
+        err?.fgsiMessage || ''
+      ).trim()
+
     return (
-      '💀 Hasil dari AI-nya aneh.\n' +
-      'Server-nya ngasih respons yang nggak kebaca.'
+      '🗿 AI-nya nolak request.\n' +
+      (
+        detail
+          ? `Pesannya: *${detail.slice(0, 180)}*`
+          : 'Coba ubah prompt terus ulang lagi.'
+      )
+    )
+  }
+
+  if (
+    /OUTPUT_MISSING|BAD_IMAGE/.test(code)
+  ) {
+    return (
+      '💀 AI-nya ngasih hasil yang aneh.\n' +
+      'Coba lagi bentar.'
     )
   }
 
   return (
-    '💀 Gagal bikin gambarnya, njir.\n' +
-    'Coba lagi bentar atau ganti prompt.'
+    '💀 Dua-duanya lagi nggak mood bikin gambar.\n' +
+    'Coba lagi bentar atau ganti prompt 😭'
   )
 }
 
 function usageText(prefix) {
   return (
     '✦ *NEXA • TEXT2IMG V2*\n\n' +
-    '🗿 Mau bikin gambar tapi prompt-nya mana?\n\n' +
+    '🗿 Prompt-nya mana? AI bukan cenayang 😭\n\n' +
     '*Contoh:*\n' +
     `${prefix}text2imgv2 cewek anime pakai hoodie hitam\n` +
-    `${prefix}text2imgv2 kota cyberpunk malam hari | blur, low quality | 1024x1536\n` +
-    `${prefix}text2imgv2 kucing astronot --neg blur, bad hands --res 1536x1024\n\n` +
-    '📐 Resolusi alias: *square*, *portrait*, *landscape*\n' +
-    '👑 Owner: gratis • ⭐ Premium: limit premium'
+    `${prefix}text2imgv2 kota cyberpunk malam | blur, low quality | portrait\n` +
+    `${prefix}text2imgv2 kucing astronot --neg blur --res landscape\n\n` +
+    '📐 Resolusi: *square / portrait / landscape*\n' +
+    '♻️ Kalau V2 ngambek karena userKey, otomatis dicoba pakai V1.'
   )
 }
 
@@ -551,7 +637,7 @@ export default {
   ],
   category: 'PREMIUM',
   description:
-    'Bikin gambar dari teks (FGSI V2)',
+    'Bikin gambar dari teks (V2 + fallback V1)',
   usage:
     '.text2imgv2 <prompt>',
   premiumOnly: true,
@@ -589,7 +675,7 @@ export default {
         jid,
         {
           text:
-            '⏳ Mesin gambar lagi sibuk. Sabar bentar njir 😭'
+            '⏳ Pabrik gambar lagi penuh. Sabar bentar njir 😭'
         },
         {
           quoted: msg
@@ -616,15 +702,12 @@ export default {
       localRelease()
 
       if (
-        job.reason ===
-        'LIMIT'
+        job.reason === 'LIMIT'
       ) {
         return sendLimitEmpty({
           sock,
           msg,
-          jid,
-          mode:
-            'premiumLimit'
+          jid
         })
       }
 
@@ -659,10 +742,10 @@ export default {
         {
           text:
             '✦ *NEXA • TEXT2IMG V2*\n\n' +
-            '🗿 Prompt-nya gue lempar dulu ke pabrik gambar...\n' +
-            'Jangan ditanya kapan jadi, AI-nya lagi kerja 😭\n\n' +
+            '🗿 Prompt-nya gue lempar ke pabrik gambar dulu...\n' +
+            'Kalau V2 kehilangan kunci rumah, gue suruh V1 gantian kerja 😭\n\n' +
             `📝 *Prompt:* ${input.prompt.slice(0, 120)}${input.prompt.length > 120 ? '…' : ''}\n` +
-            `📐 *Resolusi:* ${input.resolution}`
+            `📐 *Target:* ${input.resolution}`
         },
         {
           quoted: msg
@@ -675,6 +758,11 @@ export default {
           () => generateImage(input)
         )
 
+      const engineText =
+        result.fallback
+          ? 'V1 • fallback otomatis'
+          : 'V2'
+
       await stage(
         'text2imgv2/send',
         () => sock.sendMessage(
@@ -683,10 +771,15 @@ export default {
             image:
               result.buffer,
             caption:
-              '✦ *NEXA • TEXT2IMG V2*\n\n' +
+              '✦ *NEXA • TEXT2IMG*\n\n' +
               '✅ Jadi juga akhirnya 😭\n\n' +
               `📝 *Prompt:* ${input.prompt.slice(0, 160)}${input.prompt.length > 160 ? '…' : ''}\n` +
-              `📐 *Resolusi:* ${result.resolution}\n` +
+              `🧠 *Engine:* ${engineText}\n` +
+              (
+                result.fallback
+                  ? '🗿 V2 tadi kehilangan userKey, jadi V1 yang turun tangan.\n'
+                  : `📐 *Resolusi:* ${input.resolution}\n`
+              ) +
               `🎟 *Biaya:* ${job.cost ? `${job.cost} Limit` : 'Gratis • Owner 👑'}`
           },
           {
