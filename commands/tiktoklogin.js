@@ -1,5 +1,6 @@
 import {
   acquireTikTokTask,
+  startTikTokEmailLogin,
   startTikTokPhoneLogin
 } from '../lib/tiktok-studio.js'
 
@@ -12,23 +13,23 @@ export default {
   name: 'tiktoklogin',
 
   aliases: [
-    'ttlogin',
-    'tiktokphone'
+    'ttlogin'
   ],
 
   category: 'OWNER',
   ownerOnly: true,
 
   description:
-    'Login TikTok Studio pakai nomor HP + OTP',
+    'Login TikTok Studio via phone atau email',
 
   usage:
-    '.tiktoklogin',
+    '.tiktoklogin phone|email',
 
   async run({
     sock,
     msg,
-    jid
+    jid,
+    args
   }) {
     if (!isPrivate(jid)) {
       return sock.sendMessage(
@@ -36,34 +37,30 @@ export default {
         {
           text:
             '🔐 Login TikTok jangan di grup 😭🗿\n' +
-            'Chat NEXA secara pribadi lalu jalankan *.tiktoklogin*.'
+            'Chat pribadi NEXA lalu pakai *.tiktoklogin phone* atau *.tiktoklogin email*.'
         },
         { quoted: msg }
       )
     }
 
-    const phone =
-      String(
-        process.env.TIKTOK_PHONE || ''
-      ).trim()
+    const mode =
+      String(args?.[0] || '')
+        .trim()
+        .toLowerCase()
 
-    const countryCode =
-      String(
-        process.env.TIKTOK_COUNTRY_CODE ||
-        '62'
-      ).trim()
-
-    if (!phone) {
+    if (
+      mode !== 'phone' &&
+      mode !== 'email'
+    ) {
       return sock.sendMessage(
         jid,
         {
           text:
             '✦ *NEXA • TIKTOK LOGIN*\n\n' +
-            '🗿 Nomor TikTok belum dipasang.\n\n' +
-            'Tambahin ke *.env* Ptero:\n' +
-            '```TIKTOK_COUNTRY_CODE=62\n' +
-            'TIKTOK_PHONE=81234567890```\n\n' +
-            'Itu contoh format. Isi nomor akun lu sendiri.'
+            'Pilih metode dulu 🗿😭\n\n' +
+            '📱 *.tiktoklogin phone*\n' +
+            '📧 *.tiktoklogin email*\n\n' +
+            'Nomor/email tetap dari *.env*, jadi nggak nongol di log command.'
         },
         { quoted: msg }
       )
@@ -77,29 +74,133 @@ export default {
         jid,
         {
           text:
-            '🗿 TikTok Studio lagi dipakai / lagi nunggu OTP.\n' +
-            'Tunggu proses sebelumnya dulu 😭'
+            '🗿 TikTok Studio lagi dipakai / lagi nunggu kode verifikasi.\n' +
+            'Selesaikan proses sebelumnya dulu 😭'
         },
         { quoted: msg }
       )
     }
 
     try {
+      if (mode === 'phone') {
+        const phone =
+          String(
+            process.env.TIKTOK_PHONE ||
+            ''
+          ).trim()
+
+        const countryCode =
+          String(
+            process.env.TIKTOK_COUNTRY_CODE ||
+            '62'
+          ).trim()
+
+        if (!phone) {
+          return sock.sendMessage(
+            jid,
+            {
+              text:
+                '🗿 *TIKTOK_PHONE* belum ada di .env.\n\n' +
+                'Contoh:\n' +
+                '```TIKTOK_COUNTRY_CODE=62\n' +
+                'TIKTOK_PHONE=81234567890```'
+            },
+            { quoted: msg }
+          )
+        }
+
+        await sock.sendMessage(
+          jid,
+          {
+            text:
+              '✦ *NEXA • PHONE LOGIN*\n\n' +
+              '📱 Gue coba minta kode TikTok.\n' +
+              'Sekarang gue cek tombol + network, bukan cuma lihat kolom OTP 😭🗿'
+          },
+          { quoted: msg }
+        )
+
+        const result =
+          await startTikTokPhoneLogin({
+            phone,
+            countryCode,
+
+            onCodeRequested:
+              async () => {
+                await sock.sendMessage(
+                  jid,
+                  {
+                    text:
+                      '📨 *Request kode terkonfirmasi dari state halaman/network.*\n\n' +
+                      'Kalau SMS masuk:\n' +
+                      '``` .tiktokotp 123456 ```'
+                  },
+                  { quoted: msg }
+                )
+              }
+          })
+
+        if (
+          result.alreadyLoggedIn
+        ) {
+          await sock.sendMessage(
+            jid,
+            {
+              text:
+                '✅ Session TikTok ternyata masih hidup 🗿🔥'
+            },
+            { quoted: msg }
+          )
+        }
+
+        return
+      }
+
+      const email =
+        String(
+          process.env.TIKTOK_EMAIL ||
+          ''
+        ).trim()
+
+      const password =
+        String(
+          process.env.TIKTOK_PASSWORD ||
+          ''
+        )
+
+      if (
+        !email ||
+        !password
+      ) {
+        return sock.sendMessage(
+          jid,
+          {
+            text:
+              '✦ *NEXA • EMAIL LOGIN*\n\n' +
+              'Tambahin ke *.env* Ptero:\n' +
+              '```TIKTOK_EMAIL=email-akun-lu\n' +
+              'TIKTOK_PASSWORD=password-akun-lu```\n\n' +
+              '🔐 Jangan kirim credential asli ke chat.'
+          },
+          { quoted: msg }
+        )
+      }
+
       await sock.sendMessage(
         jid,
         {
           text:
-            '✦ *NEXA • TIKTOK LOGIN*\n\n' +
-            '📱 Gue minta kode SMS TikTok dulu...\n' +
-            'Nomor diambil dari *.env* jadi nggak gue tampilin di chat 🔐'
+            '✦ *NEXA • EMAIL LOGIN*\n\n' +
+            '📧 Gue coba login pakai email/username + password...\n' +
+            'Kalau TikTok minta kode tambahan, lanjut *.tiktokotp*.'
         },
         { quoted: msg }
       )
 
       const result =
-        await startTikTokPhoneLogin({
-          phone,
-          countryCode,
+        await startTikTokEmailLogin({
+          email,
+          password,
 
           onCodeRequested:
             async () => {
@@ -107,11 +208,9 @@ export default {
                 jid,
                 {
                   text:
-                    '✦ *NEXA • TIKTOK OTP*\n\n' +
-                    '📨 Kalau SMS TikTok udah masuk, kirim:\n' +
-                    '``` .tiktokotp 123456 ```\n\n' +
-                    '⏳ Ditunggu sekitar 3 menit.\n' +
-                    '🔐 Jangan kirim OTP di grup.'
+                    '📨 TikTok minta verifikasi tambahan.\n\n' +
+                    'Kalau kode masuk ke email/nomor akun:\n' +
+                    '``` .tiktokotp 123456 ```'
                 },
                 { quoted: msg }
               )
@@ -125,8 +224,19 @@ export default {
           jid,
           {
             text:
-              '✅ Ternyata session TikTok masih hidup 🗿🔥\n' +
-              '*.tiktokpost* udah bisa dipakai.'
+              '✅ Session TikTok ternyata masih hidup 🗿🔥'
+          },
+          { quoted: msg }
+        )
+      } else if (
+        result.loggedIn
+      ) {
+        await sock.sendMessage(
+          jid,
+          {
+            text:
+              '✅ *LOGIN EMAIL BERHASIL* 😭🔥🗿\n' +
+              'Session udah nempel. *.tiktokpost* siap dipakai.'
           },
           { quoted: msg }
         )
@@ -138,48 +248,71 @@ export default {
           error
         )
 
+      console.error(
+        '[TIKTOK_LOGIN] error:',
+        code
+      )
+
+      if (
+        error?.debugInfo
+      ) {
+        console.log(
+          '[TIKTOK_LOGIN] debug:',
+          error.debugInfo
+        )
+      }
+
       let text =
         '✦ *NEXA • TIKTOK LOGIN*\n\n' +
-        '❌ Login nomor HP gagal 😭\n' +
+        '❌ TikTok ngajak ribut lagi 😭🗿\n' +
         `🧩 ${code.slice(0, 220)}`
 
       if (
         code.includes(
-          'TIKTOK_COUNTRY_CODE_NOT_FOUND'
+          'TIKTOK_SEND_CODE_NOT_CONFIRMED'
         )
       ) {
         text =
-          '🌍 Kode negara nggak ketemu 😭\n' +
-          'Cek *TIKTOK_COUNTRY_CODE* di .env. Indonesia = `62`.'
-      } else if (
-        code.includes(
-          'TIKTOK_PHONE_INPUT_NOT_FOUND'
-        ) ||
-        code.includes(
-          'TIKTOK_SEND_CODE_BUTTON_NOT_FOUND'
-        )
-      ) {
-        text =
-          '🗿 Form login TikTok berubah.\n' +
-          'Kolom nomor / tombol *Send code* nggak ketemu 😭\n' +
-          `🧩 ${code}`
+          '📵 Klik *Send code* nggak bisa dikonfirmasi sebagai request OTP yang bener.\n' +
+          'Jadi kemungkinan TikTok web/Ptero yang nahan, bukan format nomor lu 😭🗿'
       } else if (
         code.includes(
           'TIKTOK_SEND_CODE_DISABLED'
         )
       ) {
         text =
-          '🗿 Tombol *Send code* dari TikTok lagi disabled.\n' +
-          'Berarti SMS belum diminta sama sekali 😭'
+          '📵 Tombol *Send code* TikTok masih disabled.\n' +
+          'Request SMS belum jalan.'
       } else if (
         code.includes(
-          'TIKTOK_SEND_CODE_NOT_CONFIRMED'
+          'TIKTOK_BAD_PASSWORD'
         )
       ) {
         text =
-          '📵 NEXA udah klik *Send code*, tapi halaman TikTok nggak pernah masuk state OTP.\n' +
-          'Jadi kemungkinan besar SMS memang *belum dikirim* 😭🗿\n\n' +
-          'Gue kirim screenshot kondisi browser setelah klik biar kelihatan TikTok nahan di mana.'
+          '🔐 TikTok nolak password.\n' +
+          'Cek *TIKTOK_EMAIL* / *TIKTOK_PASSWORD* di .env.'
+      } else if (
+        code.includes(
+          'TIKTOK_EMAIL_MODE_NOT_FOUND'
+        ) ||
+        code.includes(
+          'TIKTOK_EMAIL_INPUT_NOT_FOUND'
+        ) ||
+        code.includes(
+          'TIKTOK_PASSWORD_INPUT_NOT_FOUND'
+        )
+      ) {
+        text =
+          '🗿 Layout login email TikTok berubah / elemennya nggak ketemu.\n' +
+          `🧩 ${code}`
+      } else if (
+        code.includes(
+          'TIKTOK_EMAIL_LOGIN_TIMEOUT'
+        )
+      ) {
+        text =
+          '⌛ Login email nggak selesai dalam batas waktu.\n' +
+          'Screenshot kondisi browser gue lampirin.'
       } else if (
         code.includes(
           'TIKTOK_CHALLENGE'
@@ -187,15 +320,7 @@ export default {
       ) {
         text =
           '🧩 TikTok minta CAPTCHA / verifikasi keamanan.\n' +
-          'NEXA berhenti di sini, nggak mencoba ngebypass itu.'
-      } else if (
-        code.includes(
-          'TIKTOK_LOGIN_PENDING'
-        )
-      ) {
-        text =
-          '📨 Masih ada login yang nunggu OTP.\n' +
-          'Kirim *.tiktokotp 123456* kalau SMS sudah masuk.'
+          'NEXA berhenti di situ dan nggak mencoba ngebypass.'
       }
 
       if (
@@ -206,7 +331,6 @@ export default {
           {
             image:
               error.debugScreenshot,
-
             caption:
               text
           },

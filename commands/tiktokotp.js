@@ -18,7 +18,7 @@ export default {
   ownerOnly: true,
 
   description:
-    'Masukkan OTP login TikTok yang sedang ditunggu',
+    'Masukkan kode verifikasi TikTok',
 
   usage:
     '.tiktokotp <6 digit>',
@@ -34,8 +34,7 @@ export default {
         jid,
         {
           text:
-            '🔐 OTP jangan dikirim di grup 😭🗿\n' +
-            'Kirim di chat pribadi bot.'
+            '🔐 Kode verifikasi jangan dikirim di grup 😭🗿'
         },
         { quoted: msg }
       )
@@ -54,7 +53,7 @@ export default {
         jid,
         {
           text:
-            '🗿 OTP harus 6 digit.\n' +
+            '🗿 Kodenya harus 6 digit.\n' +
             'Contoh: *.tiktokotp 123456*'
         },
         { quoted: msg }
@@ -66,8 +65,8 @@ export default {
         jid,
         {
           text:
-            '🔐 Kodenya gue masukin ke browser TikTok...\n' +
-            'OTP nggak gue print ke console atau simpan ke file.'
+            '🔐 Kodenya gue masukin ke TikTok...\n' +
+            'Nggak disimpan ke file atau dicetak ke console.'
         },
         { quoted: msg }
       )
@@ -80,10 +79,8 @@ export default {
         jid,
         {
           text:
-            '✦ *NEXA • TIKTOK LOGIN*\n\n' +
-            '✅ LOGIN BERHASIL 😭🔥🗿\n' +
-            'Session TikTok udah nempel di server.\n\n' +
-            'Sekarang reply video pakai *.tiktokpost <caption>*.'
+            '✅ *LOGIN TIKTOK BERHASIL* 😭🔥🗿\n' +
+            'Session udah nempel. *.tiktokpost* siap dipakai.'
         },
         { quoted: msg }
       )
@@ -95,7 +92,7 @@ export default {
         )
 
       let text =
-        '❌ OTP TikTok gagal 😭\n' +
+        '❌ Kode verifikasi gagal 😭\n' +
         `🧩 ${raw.slice(0, 220)}`
 
       if (
@@ -104,32 +101,22 @@ export default {
         )
       ) {
         text =
-          '🗿 Nggak ada login yang lagi nunggu OTP.\n' +
-          'Jalankan *.tiktoklogin* dulu.'
+          '🗿 Nggak ada login yang lagi nunggu kode.\n' +
+          'Pakai *.tiktoklogin phone* atau *.tiktoklogin email* dulu.'
       } else if (
         raw.includes(
           'TIKTOK_OTP_INVALID'
         )
       ) {
         text =
-          '❌ TikTok bilang OTP salah 😭\n' +
-          'Jalankan *.tiktoklogin* lagi buat minta kode baru.'
+          '❌ TikTok bilang kodenya salah 😭'
       } else if (
         raw.includes(
           'TIKTOK_OTP_EXPIRED'
         )
       ) {
         text =
-          '⌛ OTP keburu expired 🗿😭\n' +
-          'Jalankan *.tiktoklogin* lagi.'
-      } else if (
-        raw.includes(
-          'TIKTOK_OTP_RATE_LIMIT'
-        )
-      ) {
-        text =
-          '🚦 TikTok lagi ngerem percobaan login.\n' +
-          'Jangan spam kode; tunggu dulu sebelum coba lagi.'
+          '⌛ Kodenya keburu expired 🗿😭'
       } else if (
         raw.includes(
           'TIKTOK_CHALLENGE'
@@ -137,15 +124,7 @@ export default {
       ) {
         text =
           '🧩 TikTok minta CAPTCHA / verifikasi keamanan.\n' +
-          'NEXA berhenti dan nggak mencoba ngebypass itu.'
-      } else if (
-        raw.includes(
-          'TIKTOK_LOGIN_TIMEOUT'
-        )
-      ) {
-        text =
-          '⌛ TikTok belum kasih session setelah OTP 😭\n' +
-          'Coba *.tiktoklogin* lagi dengan kode baru.'
+          'NEXA berhenti dan nggak mencoba ngebypass.'
       }
 
       await sock.sendMessage(
