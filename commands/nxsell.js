@@ -125,8 +125,16 @@ export default {
         `${result.asset.icon} Aset: *${result.asset.name}*\n` +
         `📦 Jumlah: *${formatNexium(result.quantity)}*\n` +
         `🏷 Harga: *${formatNexium(result.unitPrice)} NX / unit*\n` +
-        `💵 Diterima: *${formatNexium(result.total)} NX*\n\n` +
-        `💠 Saldo: *${formatNexium(result.balance)} NX*\n` +
+        `💵 Nilai jual: *${formatNexium(result.total)} NX*\n` +
+        (
+          result.walletCapped
+            ? (
+                `🛡️ Masuk wallet: *${formatNexium(result.credited)} NX*\n` +
+                `   Wallet Owner sudah mencapai plafon admin.\n`
+              )
+            : ''
+        ) +
+        `\n💠 Saldo: *${formatNexium(result.balance)} NX*\n` +
         `📊 Tersisa: *${formatNexium(result.holding)}*`
 
       return sock.sendMessage(
