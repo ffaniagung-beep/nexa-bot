@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { handleHutaonatorReply } from './lib/hutaonator.js'
 import makeWASocket, {
   DisconnectReason,
@@ -2934,11 +2935,18 @@ async function startBotInner() {
             isInteractiveAction(
               msg
             ) &&
-            text
-              .toLowerCase()
-              .startsWith(
-                `${config.prefix}apkmody __`
-              )
+            (
+              text
+                .toLowerCase()
+                .startsWith(
+                  `${config.prefix}apkmody __`
+                ) ||
+              text
+                .toLowerCase()
+                .startsWith(
+                  `${config.prefix}hd+ __deliver `
+                )
+            )
 
           const spam =
             uiAction
