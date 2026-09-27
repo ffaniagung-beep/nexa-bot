@@ -24,7 +24,7 @@ const FGSI_BASE =
   'https://fgsi.dpdns.org'
 
 const DEFAULT_RESOLUTION =
-  '1024x1024'
+  '512x768'
 
 const MAX_OUTPUT_BYTES =
   20 * 1024 * 1024
@@ -317,8 +317,33 @@ async function generateImage({
       raw.slice(0, 800)
     )
 
+    let detail = ''
+
+    try {
+      const errorData =
+        JSON.parse(raw)
+
+      detail = String(
+        errorData?.message ||
+        errorData?.error ||
+        errorData?.msg ||
+        ''
+      ).trim()
+    } catch {}
+
+    if (
+      /failed to get userkey/i
+        .test(detail)
+    ) {
+      throw new Error(
+        'FGSI_USERKEY_FAILED'
+      )
+    }
+
     throw new Error(
-      `FGSI_T2I_HTTP_${res.status}`
+      detail
+        ? `FGSI_T2I_HTTP_${res.status}:${detail}`
+        : `FGSI_T2I_HTTP_${res.status}`
     )
   }
 
@@ -338,6 +363,15 @@ async function generateImage({
         parsed?.msg ||
         ''
       ).trim()
+
+      if (
+        /failed to get userkey/i
+          .test(detail)
+      ) {
+        throw new Error(
+          'FGSI_USERKEY_FAILED'
+        )
+      }
 
       throw new Error(
         detail
@@ -449,6 +483,14 @@ function failText(err) {
     return (
       '🔑 API key FGSI belum dipasang, njir.\n' +
       'Set dulu *FGSI_API_KEY* di server.'
+    )
+  }
+
+  if (/FGSI_USERKEY_FAILED/.test(code)) {
+    return (
+      '🗿 AI-nya lagi kehilangan kunci rumah.\n' +
+      'Backend FGSI gagal dapetin *userKey* 😭\n' +
+      'Ini respons dari server mereka, coba lagi nanti.'
     )
   }
 
