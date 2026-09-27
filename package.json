@@ -26,7 +26,6 @@
     "puppeteer-core": "^25.11.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
-    "undici": "^8.10.2",
-    "waifu2x": "^1.6.5"
+    "undici": "^8.10.2"
   }
 }
