@@ -494,92 +494,101 @@ export default {
     msg,
     jid
   }) {
-    const release =
+    const source =
+      getMediaSource(
+        msg,
+        sock
+      )
+
+    if (
+      source?.type !==
+      'image'
+    ) {
+      return sock.sendMessage(
+        jid,
+        {
+          text:
+            '✦ *NEXA • TO FIGURE*\n\n' +
+            '🗿 Mana fotonya?\n' +
+            'Reply atau kirim gambar bareng *.tofigure*.'
+        },
+        {
+          quoted: msg
+        }
+      )
+    }
+
+    const localRelease =
       acquireMaker()
 
-    if (!release) {
-      await sock.sendMessage(
+    if (!localRelease) {
+      return sock.sendMessage(
+        jid,
+        {
+          text:
+            '⏳ Mesin figure lagi dipake orang lain.\n' +
+            'Tunggu bentar, jangan rebutan cetakan 🗿'
+        },
+        {
+          quoted: msg
+        }
+      )
+    }
+
+    const job =
+      beginBilledJob({
+        msg,
+        jid,
+        kind: 'maker',
+        normalCost:
+          TOFIGURE_COST,
+        premiumCost:
+          TOFIGURE_COST,
+        globalLimit: 1,
+        perOwnerLimit: 1,
+        ttlMs:
+          3 * 60 * 1000
+      })
+
+    if (!job.ok) {
+      localRelease()
+
+      if (
+        job.reason ===
+        'LIMIT'
+      ) {
+        return sendLimitEmpty({
+          sock,
+          msg,
+          jid
+        })
+      }
+
+      return sock.sendMessage(
         jid,
         {
           text:
             resourceBusyText(
-              'maker'
+              job.busy,
+              'proses To Figure'
             )
         },
         {
           quoted: msg
         }
       )
-      return
-    }
-
-    const bill =
-      beginBilledJob({
-        jid,
-        key: 'premiumLimit',
-        amount:
-          TOFIGURE_COST,
-        label: 'tofigure'
-      })
-
-    if (
-      !bill.allowed
-    ) {
-      release()
-      await sendLimitEmpty({
-        sock,
-        jid,
-        msg,
-        mode:
-          'premiumLimit'
-      })
-      return
     }
 
     let delivered = false
 
+    react(
+      sock,
+      jid,
+      msg,
+      '🎎'
+    )
+
     try {
-      const source =
-        getMediaSource(msg)
-
-      if (!source) {
-        throw new Error(
-          'REUPLOAD_IMAGE'
-        )
-      }
-
-      const mime = String(
-        source?.mimetype || ''
-      )
-
-      if (
-        !mime.startsWith(
-          'image/'
-        )
-      ) {
-        await sock.sendMessage(
-          jid,
-          {
-            text:
-              '✦ *NEXA • TO FIGURE*\n\n' +
-              '🗿 Mana fotonya?\n' +
-              'Reply atau kirim gambar bareng *.tofigure*.'
-          },
-          {
-            quoted: msg
-          }
-        )
-        refundBilledJob(bill)
-        return
-      }
-
-      react(
-        sock,
-        jid,
-        msg,
-        '🎎'
-      )
-
       await sock.sendMessage(
         jid,
         {
@@ -596,31 +605,49 @@ export default {
       const buffer =
         await stage(
           'tofigure/download',
-          () => downloadMedia(source)
+          () =>
+            downloadMedia(
+              source,
+              sock
+            )
         )
 
       const result =
         await stage(
           'tofigure/fgsi',
-          () => toFigure(buffer)
+          () =>
+            toFigure(
+              buffer
+            )
         )
 
-      await sock.sendMessage(
-        jid,
-        {
-          image: result,
-          caption:
-            '✦ *NEXA • TO FIGURE*\n\n' +
-            '✅ Nah jadi juga 😭\n\n' +
-            '🗿 Sekarang fotonya resmi naik pangkat\n' +
-            'jadi figure buat pajangan lemari.'
-        },
-        {
-          quoted: msg,
-          mediaUploadTimeoutMs:
-            120000
-        }
+      await stage(
+        'tofigure/send',
+        () =>
+          sock.sendMessage(
+            jid,
+            {
+              image: result,
+              caption:
+                '✦ *NEXA • TO FIGURE*\n\n' +
+                '✅ Nah jadi juga 😭\n\n' +
+                '🗿 Sekarang fotonya resmi naik pangkat\n' +
+                'jadi figure buat pajangan lemari.' +
+                (
+                  job.cost
+                    ? `\n\n🎟 Kepake: *${job.cost} Limit*`
+                    : '\n\n👑 Owner: *gratis, bos lewat*'
+                )
+            },
+            {
+              quoted: msg,
+              mediaUploadTimeoutMs:
+                120000
+            }
+          )
       )
+
+      delivered = true
 
       react(
         sock,
@@ -628,17 +655,22 @@ export default {
         msg,
         '✅'
       )
-
-      delivered = true
     } catch (error) {
       console.error(
         '[TOFIGURE]',
-        error?.stack || error
+        error?.stack ||
+        error
       )
 
-      if (!delivered) {
-        refundBilledJob(bill)
-      }
+      const refund =
+        !delivered
+          ? refundBilledJob(
+              job,
+              'tofigure_failed'
+            )
+          : {
+              refunded: false
+            }
 
       react(
         sock,
@@ -652,14 +684,20 @@ export default {
         {
           text:
             '✦ *NEXA • TO FIGURE*\n\n' +
-            failText(error)
+            failText(error) +
+            (
+              refund.refunded
+                ? `\n\n🎟 ${refund.cost} Limit balik lagi.`
+                : ''
+            )
         },
         {
           quoted: msg
         }
       )
     } finally {
-      release()
+      job.release()
+      localRelease()
     }
   }
 }
