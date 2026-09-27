@@ -56,6 +56,11 @@ import {
 } from './lib/limitGate.js'
 
 import {
+  getPremiumAccess,
+  sendPremiumOnly
+} from './lib/premiumGate.js'
+
+import {
   getProfileJid,
   resolveProfileJid
 } from './lib/profile.js'
@@ -620,6 +625,33 @@ async function checkPermission({
 
     return {
       allowed: false
+    }
+  }
+
+  // NEXA_PREMIUM_MENU_FOUNDATION_V11
+  const premiumRestricted =
+    Boolean(command.premiumOnly) ||
+    String(command.category || '')
+      .trim()
+      .toUpperCase() === 'PREMIUM'
+
+  if (premiumRestricted) {
+    const access = getPremiumAccess({
+      msg,
+      jid,
+      isOwner
+    })
+
+    if (!access.allowed) {
+      await sendPremiumOnly({
+        sock,
+        msg,
+        jid
+      })
+
+      return {
+        allowed: false
+      }
     }
   }
 

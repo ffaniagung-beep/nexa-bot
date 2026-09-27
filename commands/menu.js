@@ -45,6 +45,7 @@ const CATEGORY_ORDER = [
   'MINI GAME',
   'RPG',
   'INVESTMENT',
+  'PREMIUM',
   'FUN',
   'MAKER',
   'TOOLS',
@@ -65,6 +66,7 @@ const CATEGORY_ICON = {
   'MINI GAME': '🕹️',
   RPG: '⚔️',
   INVESTMENT: '📈',
+  PREMIUM: '💎',
   FUN: '🎭',
   MAKER: '🎨',
   TOOLS: '🧰',
@@ -98,6 +100,12 @@ const CATEGORY_ALIAS = {
 
   INVESTASI:
     'INVESTMENT',
+
+  PREM:
+    'PREMIUM',
+
+  VIP:
+    'PREMIUM',
 
   TOOL:
     'TOOLS',
@@ -574,6 +582,7 @@ const CATEGORY_NOTE = {
   'MINI GAME': 'Satu ronde lagi?',
   RPG: 'Bangun karakter. Lanjutkan petualangan.',
   INVESTMENT: 'Bangun portfolio dengan Nexium Coin.',
+  PREMIUM: 'Fitur eksklusif untuk Premium NEXA.',
   FUN: 'Bikin obrolan lebih ramai.',
   MAKER: 'Ubah ide jadi gambar dan stiker.',
   AI: 'Tanya, diskusi, cari inspirasi.',
@@ -587,15 +596,30 @@ const CATEGORY_NOTE = {
 function menuTitle(botName, label) {
   return `✦ *${menuText(botName || 'NEXA-BOT', 40)}*\n${label}\n${MENU_LINE}`
 }
-function commandBadges(command) {
-  return `${command.premiumOnly ? ' ⭐' : ''}${command.ownerOnly ? ' 👑' : ''}`
+// NEXA_PREMIUM_MENU_FOUNDATION_V11
+function isPremiumCommand(command) {
+  return Boolean(
+    command?.premiumOnly ||
+    normalizeCategory(command?.category || '') === 'PREMIUM'
+  )
+}
+
+function isPremiumLocked(command, { premium = false, owner = false } = {}) {
+  return isPremiumCommand(command) && !premium && !owner
+}
+
+function commandBadges(command, access = {}) {
+  return (
+    `${isPremiumLocked(command, access) ? ' 🔒' : ''}` +
+    `${command.ownerOnly ? ' 👑' : ''}`
+  )
 }
 function menuFooter(prefix) {
   return `${MENU_LINE}\n⌂ *${prefix}menu*  ·  *${prefix}menu all*\n↳ Detail: *${prefix}help <command>*`
 }
-function menuLegend(commands) {
+function menuLegend(commands, access = {}) {
   const tags=[]
-  if(commands.some(c=>c.premiumOnly)) tags.push('⭐ Premium')
+  if(commands.some(c=>isPremiumLocked(c,access))) tags.push('🔒 Premium diperlukan')
   if(commands.some(c=>c.ownerOnly)) tags.push('👑 Owner')
   return tags.length ? '\n' + tags.join('  ·  ') : ''
 }
@@ -610,22 +634,31 @@ function buildHeader({botName, name, user, premium, owner, total, categoryCount}
     `╰─ ${total} command · ${categoryCount} kategori`
 }
 function buildMainMenu(context) {
-  const {groups,prefix}=context
+  const {groups,prefix,premium,owner}=context
   const categories=getAvailableCategories(groups)
   const header=buildHeader({...context,total:countCommands(groups),categoryCount:categories.length})
-  const list=categories.map(category=>
-    `${CATEGORY_ICON[category] || '📦'} *${category}*  ·  ${groups[category].length}\n` +
-    `   ↳ ${prefix}menu ${category.toLowerCase()}`
-  ).join('\n\n')
+  const list=categories.map(category=>{
+    const locked=category==='PREMIUM' && !premium && !owner
+    return `${CATEGORY_ICON[category] || '📦'} *${category}*${locked ? ' 🔒' : ''}  ·  ${groups[category].length}\n` +
+      `   ↳ ${prefix}menu ${category.toLowerCase()}`
+  }).join('\n\n')
   return `${header}\n\n*JELAJAHI NEXA*\nPilih kategori lewat command di bawah.\n\n${list}\n\n`+
     `${MENU_LINE}\n📚 Semua fitur: *${prefix}menu all*\n🔎 Cara pakai: *${prefix}help <command>*`
 }
-function buildCategoryMenu({groups,category,prefix,name,botName}) {
+function buildCategoryMenu({groups,category,prefix,name,botName,premium,owner}) {
   const list=groups[category] || []
   const title=`${CATEGORY_ICON[category] || '📦'} ${category}`
-  const intro=menuTitle(botName,title)+`\n\n*${CATEGORY_NOTE[category] || 'Pilih fitur yang kamu butuhkan.'}*\n`+
+  const premiumState=category==='PREMIUM'
+    ? (owner
+        ? '\n👑 *Owner bypass aktif.*'
+        : premium
+          ? '\n🔓 *Premium aktif — semua fitur terbuka.*'
+          : '\n🔒 *Premium belum aktif — fitur terlihat, tapi terkunci.*')
+    : ''
+
+  const intro=menuTitle(botName,title)+`\n\n*${CATEGORY_NOTE[category] || 'Pilih fitur yang kamu butuhkan.'}*${premiumState}\n`+
     `${list.length} command tersedia.\n\n`
-  const render=command=>`✧ *${commandPrefix(prefix,command.name)}*${commandBadges(command)}`+
+  const render=command=>`✧ *${commandPrefix(prefix,command.name)}*${commandBadges(command,{premium,owner})}`+
     (command.description ? `\n   ${menuText(command.description,180)}` : '')
   let body=''
   if(category==='RPG') {
@@ -649,20 +682,21 @@ function buildCategoryMenu({groups,category,prefix,name,botName}) {
     if(others.length)blocks.push(`▸ *LAINNYA*\n\n${others.map(render).join('\n\n')}`)
     body=blocks.join('\n\n')
   }else body=list.map(render).join('\n\n')
-  return `${intro}${body}${menuLegend(list)}\n\n${menuFooter(prefix)}`
+  return `${intro}${body}${menuLegend(list,{premium,owner})}\n\n${menuFooter(prefix)}`
 }
 function buildAllMenu(context) {
-  const {groups,prefix}=context
+  const {groups,prefix,premium,owner}=context
   const categories=getAvailableCategories(groups)
   const header=buildHeader({...context,total:countCommands(groups),categoryCount:categories.length})
   const sections=categories.map(category=>{
     const list=groups[category]
-    return `╭─ ${CATEGORY_ICON[category] || '📦'} *${category}* · ${list.length}\n`+
-      list.map(c=>`│ ${commandPrefix(prefix,c.name)}${commandBadges(c)}`).join('\n')+
+    const locked=category==='PREMIUM' && !premium && !owner
+    return `╭─ ${CATEGORY_ICON[category] || '📦'} *${category}*${locked ? ' 🔒' : ''} · ${list.length}\n`+
+      list.map(c=>`│ ${commandPrefix(prefix,c.name)}${commandBadges(c,{premium,owner})}`).join('\n')+
       '\n╰────────────'
   })
   return `${header}\n\n*DIREKTORI COMMAND*\nSemua fitur, satu tempat.\n\n`+
-    sections.join('\n\n')+menuLegend(Object.values(groups).flat())+`\n\n${menuFooter(prefix)}`
+    sections.join('\n\n')+menuLegend(Object.values(groups).flat(),{premium,owner})+`\n\n${menuFooter(prefix)}`
 }
 function usageWithPrefix(command,prefix) {
   const raw=cleanText(command.usage)
@@ -1055,7 +1089,10 @@ export default {
           category,
           prefix,
           name:
-            context.name
+            context.name,
+          premium:
+            context.premium,
+          owner
         })
 
       return sendMenu({

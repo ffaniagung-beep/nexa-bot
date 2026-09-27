@@ -225,7 +225,7 @@ export default {
           `*${formatDate(
             user.premiumUntil
           )}*\n\n` +
-          `✅ Bebas Limit\n` +
+          `✅ Diskon Limit di fitur tertentu\n` +
           `🛡️ Anti-Spam tetap berlaku\n` +
           `🔒 Tidak mendapat akses Owner`,
 
