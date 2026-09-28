@@ -112,13 +112,14 @@ export default {
         `💬 Reply *gambar ini* dengan nama negaranya\n` +
         `🏳️ Reply *nyerah* untuk menyerah\n` +
         `🏆 Jawaban benar tercepat masuk ranking\n\n` +
-        `🎁 *Reward Ranking*\n` +
-        `🥇 +30 EXP • +10 Coin\n` +
-        `🥈 +24 EXP • +7 Coin\n` +
-        `🥉 +18 EXP • +5 Coin\n` +
-        `4️⃣ +12 EXP • +3 Coin\n` +
-        `5️⃣+ +8 EXP • +1 Coin\n` +
-        `♾️ Coin game tanpa cap harian\n\n` +
+        `🎁 *Reward Ranking • Random*\n` +
+        `🥇 +25–35 EXP • +15–25 Coin\n` +
+        `🥈 +20–28 EXP • +10–18 Coin\n` +
+        `🥉 +15–22 EXP • +7–13 Coin\n` +
+        `4️⃣ +10–16 EXP • +4–9 Coin\n` +
+        `5️⃣+ +6–10 EXP • +2–5 Coin\n` +
+        `♾️ Coin game tanpa cap harian\n` +
+        `⚡ Setelah #1: *15 detik* rebut ranking\n\n` +
         `⚡ Jawab tanpa prefix`
 
       await startRound({
