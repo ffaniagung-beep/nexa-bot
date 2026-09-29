@@ -3047,14 +3047,36 @@ async function startBotInner() {
           // LIMIT GATE
           // =================================
 
+          const isTikTokInternalDownload =
+            String(
+              command?.name || ''
+            ).toLowerCase() ===
+              'tiktok' &&
+            String(
+              args?.[0] || ''
+            ).toLowerCase() ===
+              '__download'
+
+          // Tombol Video/HD/MP3 TikTok memanggil command internal
+          // `tiktok __download ...`. Jangan charge Limit dua kali;
+          // charge tetap terjadi saat user menjalankan .tiktok <url>.
           const limitCheck =
-            await checkCommandLimit({
-              sock,
-              msg,
-              jid,
-              commandName:
-                command.name
-            })
+            isTikTokInternalDownload
+              ? {
+                  allowed: true,
+                  cost: 0,
+                  charged: false,
+                  owner: isOwner
+                }
+              : await checkCommandLimit({
+                  sock,
+                  msg,
+                  jid,
+                  commandName:
+                    command.name,
+                  ownerOverride:
+                    isOwner
+                })
 
           if (
             !limitCheck.allowed
