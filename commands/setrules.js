@@ -1,31 +1,9 @@
-import fs from 'fs'
+import {
+  updateGroupConfig
+} from '../lib/groupdb.js'
 import {
   getGroupInfo
 } from '../lib/group.js'
-
-const DB =
-  './database/groups.json'
-
-function readDB() {
-  try {
-    return JSON.parse(
-      fs.readFileSync(DB, 'utf8')
-    )
-  } catch {
-    return {}
-  }
-}
-
-function saveDB(data) {
-  fs.writeFileSync(
-    DB,
-    JSON.stringify(
-      data,
-      null,
-      2
-    )
-  )
-}
 
 export default {
   name: 'setrules',
@@ -40,7 +18,8 @@ export default {
     sock,
     msg,
     jid,
-    args
+    args,
+    config
   }) {
     const info =
       await getGroupInfo(
@@ -84,7 +63,7 @@ export default {
         {
           text:
             'Contoh:\n' +
-            '!setrules Dilarang spam, saling menghormati.'
+            `${config.prefix}setrules Dilarang spam, saling menghormati.`
         },
         { quoted: msg }
       )
@@ -92,14 +71,10 @@ export default {
       return
     }
 
-    const db = readDB()
-
-    db[jid] ??= {}
-
-    db[jid].rules =
-      rules
-
-    saveDB(db)
+    updateGroupConfig(
+      jid,
+      { rules }
+    )
 
     await sock.sendMessage(
       jid,
