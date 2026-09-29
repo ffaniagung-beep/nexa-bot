@@ -187,7 +187,12 @@ async function startTikTokRichStatus({
 
     // Button replies are not always safe to reuse as AIRich quote context.
     // Send the rich status standalone so Elaina can own/edit the message.
-    await rich.send(jid)
+    await rich.send(
+      jid,
+      {
+        forwardWrapper: true
+      }
+    )
 
     return {
       mode: 'airich',
@@ -2587,49 +2592,33 @@ function makePanelBody(
       result.downloads?.hd
     )
 
-  if (
-    hasNormal &&
-    hasHd &&
-    result.downloads?.normal?.url ===
-      result.downloads?.hd?.url
-  ) {
+  if (hasNormal || hasHd) {
     lines.push(
-      '🎬 *Video tersedia.*',
-      'Pilih *Video* untuk kirim inline atau *Video HD* untuk mempertahankan file sumber sebagai dokumen.'
+      '🎬 *Pilih format video*'
     )
-  } else if (
-    hasNormal &&
-    hasHd
-  ) {
-    lines.push(
-      '✨ *Standard + HD tersedia.*',
-      'Rekomendasi: pilih *Video HD* untuk kualitas tertinggi.'
-    )
-  } else if (hasHd) {
-    lines.push(
-      '✨ *Kualitas terdeteksi: HD.*',
-      'Rekomendasi: pilih *Video HD*.'
-    )
-  } else if (hasNormal) {
-    lines.push(
-      '🎬 *Kualitas terdeteksi: Standard.*'
-    )
-  } else {
-    lines.push(
-      '🎵 Audio tersedia.'
-    )
+
+    if (hasNormal) {
+      lines.push(
+        '• *Video* — dikirim langsung di WhatsApp.'
+      )
+    }
+
+    if (hasHd) {
+      lines.push(
+        '• *Video HD* — kualitas terbaik, dikirim sebagai dokumen MP4.'
+      )
+    }
   }
 
-  if (hasHd) {
+  if (result.downloads?.audio) {
     lines.push(
-      '',
-      '📄 Video HD dikirim sebagai dokumen MP4 agar file aslinya tidak dipaksa menjadi video inline WhatsApp.'
+      '• *MP3* — audio saja.'
     )
   }
 
   lines.push(
     '',
-    'Pilih format yang ingin diunduh:'
+    'Pilih salah satu tombol di bawah.'
   )
 
   return lines.join('\n')
@@ -2655,7 +2644,7 @@ async function sendTikTokPanel({
         )
       )
       .setFooter(
-        'Pilihan 10 menit • Progress real-time'
+        'Pilihan aktif 10 menit'
       )
 
   if (

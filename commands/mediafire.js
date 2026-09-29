@@ -1194,7 +1194,9 @@ async function startMediaFireRichStatus({
       jid,
       {
         quoted:
-          msg
+          msg,
+        forwardWrapper:
+          true
       }
     )
 
