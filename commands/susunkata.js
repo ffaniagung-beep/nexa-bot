@@ -3,8 +3,46 @@ import {
   gameStartError,
   randomItem,
   shuffleWord,
-  susunKata
+  susunKata,
+  validateSusunKataBank
 } from '../lib/game.js'
+
+const RECENT_QUESTION_LIMIT = 5
+const recentQuestionsByChat = new Map()
+
+validateSusunKataBank()
+
+function pickQuestion(jid) {
+  const recent =
+    recentQuestionsByChat.get(jid) || []
+
+  const available =
+    susunKata.filter(
+      item =>
+        !recent.includes(
+          item.word
+        )
+    )
+
+  const selected =
+    randomItem(
+      available.length
+        ? available
+        : susunKata
+    )
+
+  recentQuestionsByChat.set(
+    jid,
+    [
+      ...recent,
+      selected.word
+    ].slice(
+      -RECENT_QUESTION_LIMIT
+    )
+  )
+
+  return selected
+}
 
 export default {
   name:
@@ -29,9 +67,7 @@ export default {
     jid
   }) {
     const data =
-      randomItem(
-        susunKata
-      )
+      pickQuestion(jid)
 
     const answer =
       data.word
