@@ -185,15 +185,14 @@ async function startTikTokRichStatus({
           }
         )
 
-    await rich.send(
-      jid,
-      {
-        quoted:
-          msg
-      }
-    )
+    // Button replies are not always safe to reuse as AIRich quote context.
+    // Send the rich status standalone so Elaina can own/edit the message.
+    await rich.send(jid)
 
-    return rich
+    return {
+      mode: 'airich',
+      rich
+    }
   } catch (error) {
     console.warn(
       '[TIKTOK] AIRich start fallback:',
@@ -201,31 +200,73 @@ async function startTikTokRichStatus({
       error
     )
 
-    await sock.sendMessage(
-      jid,
-      {
-        text:
-          `✦ *NEXA • TIKTOK*
+    try {
+      const sent =
+        await sock.sendMessage(
+          jid,
+          {
+            text:
+              `✦ *NEXA • TIKTOK*\n\n` +
+              `⏳ Menyiapkan *${label}*...`
+          },
+          {
+            quoted: msg
+          }
+        )
 
-` +
-          `⏳ Menyiapkan *${label}*...`
-      },
-      {
-        quoted: msg
+      if (sent?.key) {
+        return {
+          mode: 'native',
+          sock,
+          jid,
+          key: sent.key
+        }
       }
-    )
+    } catch (fallbackError) {
+      console.warn(
+        '[TIKTOK] native progress start failed:',
+        fallbackError?.message ||
+        fallbackError
+      )
+    }
 
     return null
   }
 }
 
 async function updateTikTokRichStatus(
-  rich,
+  status,
   text
 ) {
-  if (!rich) {
+  if (!status) {
     return false
   }
+
+  if (status.mode === 'native') {
+    try {
+      await status.sock.sendMessage(
+        status.jid,
+        {
+          text:
+            `✦ *NEXA • TIKTOK*\n\n${text}`,
+          edit:
+            status.key
+        }
+      )
+
+      return true
+    } catch (error) {
+      console.warn(
+        '[TIKTOK] native progress edit failed:',
+        error?.message ||
+        error
+      )
+      return false
+    }
+  }
+
+  const rich =
+    status.rich || status
 
   try {
     rich.addText(
@@ -305,11 +346,8 @@ function createTikTokProgressUpdater({
       lastAt = now
 
       text =
-        `⬇️ Mengunduh *${label}*...
-
-` +
-        `${progressBar(bucket)} *${bucket}%*
-` +
+        `⬇️ Mengunduh *${label}*...\n\n` +
+        `${progressBar(bucket)} *${bucket}%*\n` +
         `${humanBytes(state.downloadedBytes)} / ${humanBytes(state.totalBytes)}`
     } else {
       if (
@@ -320,9 +358,7 @@ function createTikTokProgressUpdater({
 
       lastAt = now
       text =
-        `⬇️ Mengunduh *${label}*...
-
-` +
+        `⬇️ Mengunduh *${label}*...\n\n` +
         `📦 ${humanBytes(state.downloadedBytes)} terunduh`
     }
 
@@ -2619,7 +2655,7 @@ async function sendTikTokPanel({
         )
       )
       .setFooter(
-        'Pilihan berlaku 10 menit'
+        'Pilihan 10 menit • Progress real-time'
       )
 
   if (
@@ -2747,6 +2783,57 @@ function tiktokFileName(
   )
 }
 
+function getTikTokDownloadCandidates(
+  session,
+  action
+) {
+  const ordered =
+    action === 'normal'
+      ? [
+          session.downloads?.normal,
+          session.downloads?.hd
+        ]
+      : action === 'hd'
+        ? [
+            session.downloads?.hd,
+            session.downloads?.normal
+          ]
+        : [
+            session.downloads?.audio
+          ]
+
+  const seen = new Set()
+  const result = []
+
+  for (const item of ordered) {
+    const url =
+      String(
+        item?.url || ''
+      ).trim()
+
+    if (
+      !url ||
+      seen.has(url)
+    ) {
+      continue
+    }
+
+    seen.add(url)
+    result.push({
+      ...item,
+      url,
+      sourceRole:
+        item === session.downloads?.hd
+          ? 'hd'
+          : item === session.downloads?.normal
+            ? 'normal'
+            : 'audio'
+    })
+  }
+
+  return result
+}
+
 async function deliverTikTokChoice({
   sock,
   msg,
@@ -2754,10 +2841,13 @@ async function deliverTikTokChoice({
   session,
   action
 }) {
-  const selected =
-    session.downloads?.[action]
+  const candidates =
+    getTikTokDownloadCandidates(
+      session,
+      action
+    )
 
-  if (!selected?.url) {
+  if (!candidates.length) {
     throw new Error(
       'TIKTOK_OPTION_UNAVAILABLE'
     )
@@ -2808,22 +2898,72 @@ async function deliverTikTokChoice({
         label
       })
 
-    const progressUpdate =
-      createTikTokProgressUpdater({
-        rich,
-        label
-      })
+    // Always show a real starting state before the first network chunk arrives.
+    await updateTikTokRichStatus(
+      rich,
+      `⬇️ Mengunduh *${label}*...\n\n` +
+      `${progressBar(0)} *0%*\n` +
+      '📦 Menunggu ukuran file dari server...'
+    )
 
-    const downloaded =
-      await downloadTikTokMedia(
-        selected.url,
-        {
-          onProgress:
-            progressUpdate
-        }
+    let downloaded = null
+    let usedSource = null
+    let lastDownloadError = null
+
+    for (
+      let index = 0;
+      index < candidates.length;
+      index += 1
+    ) {
+      const source =
+        candidates[index]
+
+      if (index > 0) {
+        await updateTikTokRichStatus(
+          rich,
+          `↪️ Source ${label} utama gagal.\n` +
+          'Mencoba source alternatif...'
+        )
+      }
+
+      const progressUpdate =
+        createTikTokProgressUpdater({
+          rich,
+          label
+        })
+
+      try {
+        downloaded =
+          await downloadTikTokMedia(
+            source.url,
+            {
+              onProgress:
+                progressUpdate
+            }
+          )
+
+        await progressUpdate.flush()
+        usedSource = source
+        break
+      } catch (error) {
+        await progressUpdate.flush()
+        lastDownloadError = error
+
+        console.warn(
+          '[TIKTOK] media source failed:',
+          action,
+          index + 1,
+          error?.message || error
+        )
+      }
+    }
+
+    if (!downloaded) {
+      throw (
+        lastDownloadError ||
+        new Error('TIKTOK_OPTION_UNAVAILABLE')
       )
-
-    await progressUpdate.flush()
+    }
 
     await updateTikTokRichStatus(
       rich,
@@ -2847,8 +2987,8 @@ async function deliverTikTokChoice({
           caption:
             `${makeCaption(session.result)}\n\n` +
             (
-              selected.fallback
-                ? '📄 *Video original* • source HD terpisah tidak tersedia, dikirim sebagai dokumen MP4.'
+              usedSource?.sourceRole === 'normal'
+                ? '📄 *Video original* • source HD utama gagal/tidak tersedia, source alternatif dikirim sebagai dokumen MP4.'
                 : '✨ *Video HD* • dikirim sebagai dokumen MP4.'
             )
         },
@@ -2877,24 +3017,60 @@ async function deliverTikTokChoice({
         }
       )
     } else {
-      await sock.sendMessage(
-        jid,
-        {
-          video:
-            downloaded.buffer,
-          mimetype:
-            'video/mp4',
-          caption:
-            makeCaption(
-              session.result
-            )
-        },
-        {
-          quoted: msg,
-          mediaUploadTimeoutMs:
-            120_000
-        }
-      )
+      try {
+        await sock.sendMessage(
+          jid,
+          {
+            video:
+              downloaded.buffer,
+            mimetype:
+              'video/mp4',
+            caption:
+              makeCaption(
+                session.result
+              )
+          },
+          {
+            quoted: msg,
+            mediaUploadTimeoutMs:
+              120_000
+          }
+        )
+      } catch (inlineError) {
+        console.warn(
+          '[TIKTOK] inline video rejected, document fallback:',
+          inlineError?.message || inlineError
+        )
+
+        await updateTikTokRichStatus(
+          rich,
+          '⚠️ WhatsApp menolak video inline.\n' +
+          '📄 Mengirim file sebagai dokumen supaya tetap berhasil...'
+        )
+
+        await sock.sendMessage(
+          jid,
+          {
+            document:
+              downloaded.buffer,
+            mimetype:
+              'video/mp4',
+            fileName:
+              tiktokFileName(
+                'normal',
+                session
+              ),
+            caption:
+              `${makeCaption(session.result)}\n\n` +
+              '📄 Video dikirim sebagai dokumen karena format sumber ditolak untuk video inline WhatsApp.'
+          },
+          {
+            quoted: msg,
+            mediaUploadTimeoutMs:
+              120_000
+          }
+        )
+      }
     }
 
     await updateTikTokRichStatus(
