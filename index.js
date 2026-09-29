@@ -125,9 +125,106 @@ const spamMemory = new Map()
 const handledCalls = new Set()
 
 // bersihin dedup call tiap 1 jam
-setInterval(() => {
-  handledCalls.clear()
-}, 60 * 60 * 1000)
+const handledCallCleanup =
+  setInterval(() => {
+    handledCalls.clear()
+  }, 60 * 60 * 1000)
+
+handledCallCleanup.unref?.()
+
+// State anti-spam user lama tidak perlu tinggal di RAM selamanya.
+const spamCleanup =
+  setInterval(() => {
+    const cutoff =
+      Date.now() -
+      (2 * 60 * 60 * 1000)
+
+    for (
+      const [key, state]
+      of spamMemory
+    ) {
+      if (
+        Number(
+          state?.lastSeen || 0
+        ) < cutoff
+      ) {
+        spamMemory.delete(key)
+      }
+    }
+  }, 30 * 60 * 1000)
+
+spamCleanup.unref?.()
+
+// File temporary yang tertinggal karena crash jangan menumpuk selamanya.
+function cleanupStaleTemp() {
+  const root =
+    path.resolve('./temp')
+
+  try {
+    fs.mkdirSync(
+      root,
+      { recursive: true }
+    )
+
+    const cutoff =
+      Date.now() -
+      (24 * 60 * 60 * 1000)
+
+    let removed = 0
+
+    for (
+      const name
+      of fs.readdirSync(root)
+    ) {
+      const target =
+        path.join(
+          root,
+          name
+        )
+
+      let stat
+
+      try {
+        stat = fs.lstatSync(target)
+      } catch {
+        continue
+      }
+
+      if (
+        Number(stat.mtimeMs || 0) >=
+        cutoff
+      ) {
+        continue
+      }
+
+      try {
+        fs.rmSync(
+          target,
+          {
+            recursive: true,
+            force: true
+          }
+        )
+        removed++
+      } catch {}
+    }
+
+    if (removed > 0) {
+      console.log(
+        `🧹 Temp cleanup: ${removed} item lama dihapus.`
+      )
+    }
+  } catch (
+    error
+  ) {
+    console.error(
+      '⚠️ Temp cleanup:',
+      error?.message || error
+    )
+  }
+}
+
+cleanupStaleTemp()
 
 // =====================================
 // UTIL
@@ -793,8 +890,11 @@ async function checkAntiSpam({
       windowStartedAt: 0,
       count: 0,
       cooldownUntil: 0,
-      lastNotice: 0
+      lastNotice: 0,
+      lastSeen: now
     }
+  } else {
+    state.lastSeen = now
   }
 
   if (

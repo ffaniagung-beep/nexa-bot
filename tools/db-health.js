@@ -1,13 +1,9 @@
-import fs from 'fs'
 import {
   DatabaseSync
 } from 'node:sqlite'
 
 const DB_FILE =
   './database/nexa.sqlite'
-
-const MAP_FILE =
-  './database/jidmap.json'
 
 const db =
   new DatabaseSync(
@@ -110,59 +106,22 @@ const orphanPlayers =
 // CEK LID/PN MAPPING YANG TERBELAH
 // =====================================
 
-let splitMappings = 0
+const aliases =
+  count(`
+    SELECT COUNT(*) AS n
+    FROM jid_aliases
+  `)
 
-try {
-  const map =
-    JSON.parse(
-      fs.readFileSync(
-        MAP_FILE,
-        'utf8'
-      )
-    )
-
-  const stmt =
-    db.prepare(`
-      SELECT player_id
-      FROM identities
-      WHERE jid = ?
-    `)
-
-  for (
-    const [lidRaw, pnRaw]
-    of Object.entries(map)
-  ) {
-    const lid =
-      String(lidRaw)
-        .trim()
-        .toLowerCase()
-
-    const pn =
-      String(pnRaw)
-        .trim()
-        .toLowerCase()
-
-    const lidPlayer =
-      stmt.get(lid)
-        ?.player_id
-
-    const pnPlayer =
-      stmt.get(pn)
-        ?.player_id
-
-    if (
-      lidPlayer &&
-      pnPlayer &&
-      lidPlayer !==
-        pnPlayer
-    ) {
-      splitMappings++
-    }
-  }
-} catch {
-  // jidmap kosong/tidak ada bukan
-  // kerusakan SQLite.
-}
+const splitMappings =
+  count(`
+    SELECT COUNT(*) AS n
+    FROM jid_aliases a
+    JOIN identities lid_i
+      ON lid_i.jid = a.lid
+    JOIN identities pn_i
+      ON pn_i.jid = a.pn
+    WHERE lid_i.player_id <> pn_i.player_id
+  `)
 
 const ok =
   integrity === 'ok' &&
@@ -230,6 +189,11 @@ console.log(
 console.log(
   'Orphan players     :',
   orphanPlayers
+)
+
+console.log(
+  'LID/PN aliases     :',
+  aliases
 )
 
 console.log(
