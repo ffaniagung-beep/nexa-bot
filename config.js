@@ -1,16 +1,14 @@
+import 'dotenv/config'
+
+const owner = String(process.env.NEXA_OWNER || '')
+  .split(',')
+  .map(value => value.replace(/\D/g, ''))
+  .filter(Boolean)
+
 export default {
   botName: 'NEXA-BOT',
   prefix: '.',
-
-  // Nomor owner tanpa +, spasi, atau strip
-  owner: [
-    '62882006409303'
-  ],
-
-  // Opsional.
-  // Kalau suatu saat call event owner terbaca sebagai @lid,
-  // bisa dimasukkan di sini.
+  owner,
   ownerJids: [],
-
-  sessionFolder: './session-new'
+  sessionFolder: process.env.NEXA_SESSION_FOLDER || './session-new'
 }

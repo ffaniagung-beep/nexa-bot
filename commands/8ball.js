@@ -75,8 +75,7 @@ export default {
     '8ball',
 
   aliases: [
-    'ball',
-    'ask'
+    'ball'
   ],
 
   category:

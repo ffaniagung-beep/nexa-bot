@@ -2,10 +2,6 @@ import fs from 'fs'
 import path from 'path'
 
 import {
-  pathToFileURL
-} from 'url'
-
-import {
   getUser,
   isPremium
 } from '../lib/userdb.js'
@@ -21,11 +17,6 @@ import {
 // =====================================
 // PATH
 // =====================================
-
-const COMMANDS_DIR =
-  path.resolve(
-    './commands'
-  )
 
 const MENU_IMAGE =
   path.resolve(
@@ -197,82 +188,18 @@ function formatNumber(
 }
 
 // =====================================
-// DYNAMIC COMMAND LOADER
+// COMMAND LIST FROM RUNTIME REGISTRY
 // =====================================
-
-async function loadCommands() {
+function listMenuCommands(registry) {
+  if (!registry || typeof registry.values !== 'function') return []
   const result = []
-
-  let files = []
-
-  try {
-    files =
-      fs.readdirSync(
-        COMMANDS_DIR
-      )
-        .filter(
-          file =>
-            file.endsWith(
-              '.js'
-            )
-        )
-  } catch (
-    err
-  ) {
-    console.error(
-      '📋 Menu scan:',
-      err
-    )
-
-    return result
+  const seen = new Set()
+  for (const command of registry.values()) {
+    const name = String(command?.name || '').trim().toLowerCase()
+    if (!name || command?.hideFromMenu || seen.has(name)) continue
+    seen.add(name)
+    result.push(command)
   }
-
-  for (
-    const file
-    of files
-  ) {
-    try {
-      const fullPath =
-        path.join(
-          COMMANDS_DIR,
-          file
-        )
-
-      const url =
-        pathToFileURL(
-          fullPath
-        ).href
-
-      const imported =
-        await import(
-          `${url}?nexaMenu=${Date.now()}-${Math.random()}`
-        )
-
-      const command =
-        imported.default
-
-      if (
-        !command ||
-        !command.name ||
-        command.hideFromMenu
-      ) {
-        continue
-      }
-
-      result.push(
-        command
-      )
-    } catch (
-      err
-    ) {
-      console.error(
-        `📋 Menu load ${file}:`,
-        err?.message ||
-        err
-      )
-    }
-  }
-
   return result
 }
 
@@ -892,6 +819,7 @@ export default {
     jid,
     args,
     config,
+    commands: commandRegistry,
     isOwner
   }) {
     const prefix =
@@ -968,7 +896,9 @@ export default {
     // =================================
 
     const commands =
-      await loadCommands()
+      listMenuCommands(
+        commandRegistry
+      )
 
     const groups =
       groupCommands(

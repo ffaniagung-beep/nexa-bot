@@ -40,3 +40,22 @@ commands/*.before-*
 
 # NEXA managed secondary bot sessions
 sessions-bots/
+
+# Runtime / credentials
+pairing-qr.png
+*.tmp-*
+
+# Local patch/install helpers & snapshots
+fix-*.py
+install-*.py
+nexa-*.py
+*.bak
+*.bak-*
+*.before-*
+*.backup-*
+*.jsy
+*.jsy[ ]
+
+# Editor / OS
+.DS_Store
+*.swp

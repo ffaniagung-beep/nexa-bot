@@ -16,9 +16,10 @@ import { Agent as HttpsAgent } from 'node:https'
 import fs from 'fs'
 import path from 'path'
 import readline from 'readline'
-import { pathToFileURL } from 'url'
 
 import config from './config.js'
+
+import { loadCommandRegistry } from './lib/commandRegistry.js'
 
 
 import { startGroupScheduleService } from './lib/groupSchedule.js'
@@ -446,152 +447,9 @@ function isBannedMessage(
 // =====================================
 // COMMAND LOADER
 // =====================================
-
+// Diload sekali per proses; reconnect memakai registry yang sama.
 async function loadCommands() {
-  const commands = new Map()
-
-  const folder =
-    path.resolve('./commands')
-
-  if (!fs.existsSync(folder)) {
-    fs.mkdirSync(folder, {
-      recursive: true
-    })
-  }
-
-  const files =
-    fs
-      .readdirSync(folder)
-      .filter(file =>
-        file.endsWith('.js')
-      )
-
-  for (const file of files) {
-    try {
-      const filePath =
-        path.join(
-          folder,
-          file
-        )
-
-      const module =
-        await import(
-          `${pathToFileURL(filePath).href}?v=${Date.now()}`
-        )
-
-      const command =
-        module.default
-
-      if (
-        !command?.name ||
-        typeof command.run !==
-          'function'
-      ) {
-        console.log(
-          `⚠️ Skip: ${file}`
-        )
-
-        continue
-      }
-
-      commands.set(
-        command.name.toLowerCase(),
-        command
-      )
-
-      if (
-        Array.isArray(
-          command.aliases
-        )
-      ) {
-        for (
-          const alias
-          of command.aliases
-        ) {
-          commands.set(
-            alias.toLowerCase(),
-            command
-          )
-        }
-      }
-
-      console.log(
-        `📦 Loaded: ${command.name}`
-      )
-    } catch (err) {
-      console.log(
-        `❌ Gagal load ${file}`
-      )
-
-      console.log(err)
-    }
-  }
-
-  
-    // =====================================
-    // MODERN MENU PIN
-    //
-    // Pastikan .menu/.help/.commands SELALU
-    // menunjuk ke commands/menu.js terbaru.
-    // Alias/collision command lain tidak boleh
-    // mengganti menu canonical.
-    // =====================================
-
-    try {
-      const menuPath =
-        path.join(
-          folder,
-          'menu.js'
-        )
-
-      const menuModule =
-        await import(
-          `${pathToFileURL(menuPath).href}?menuPin=${Date.now()}-${Math.random()}`
-        )
-
-      const menuCommand =
-        menuModule.default
-
-      if (
-        menuCommand?.name ===
-          'menu' &&
-        typeof menuCommand.run ===
-          'function'
-      ) {
-        commands.set(
-          'menu',
-          menuCommand
-        )
-
-        commands.set(
-          'help',
-          menuCommand
-        )
-
-        commands.set(
-          'commands',
-          menuCommand
-        )
-
-        console.log(
-          '📌 Modern menu pinned'
-        )
-      } else {
-        console.log(
-          '⚠️ commands/menu.js tidak valid'
-        )
-      }
-    } catch (
-      err
-    ) {
-      console.error(
-        '❌ Gagal pin modern menu:',
-        err?.message ||
-        err
-      )
-    }
-
-return commands
+  return loadCommandRegistry()
 }
 
 // =====================================
@@ -1885,38 +1743,20 @@ async function startBotInner() {
           console.log(
             '🔒 QR disimpan lokal: pairing-qr.png'
           )
-          console.log(
-            '📱 Membuka QR...'
-          )
-          console.log('')
-
-          try {
-            const {
-              spawn
-            } =
-              await import(
-                'node:child_process'
-              )
-
-            const child =
-              spawn(
-                'termux-open',
-                [
-                  '--content-type',
-                  'image/png',
-                  qrFile
-                ],
-                {
-                  detached: true,
-                  stdio: 'ignore'
-                }
-              )
-
-            child.unref()
-          } catch {
-            console.log(
-              '⚠️ Buka manual: termux-open pairing-qr.png'
-            )
+          if (process.env.TERMUX_VERSION) {
+            console.log('📱 Membuka QR via Termux...')
+            try {
+              const { spawn } = await import('node:child_process')
+              const child = spawn('termux-open', ['--content-type', 'image/png', qrFile], {
+                detached: true,
+                stdio: 'ignore'
+              })
+              child.unref()
+            } catch {
+              console.log('⚠️ QR tersimpan di pairing-qr.png')
+            }
+          } else {
+            console.log('🖥️ QR tersimpan di pairing-qr.png (tidak auto-open di VPS).')
           }
         } catch (err) {
           console.error(
@@ -1936,6 +1776,8 @@ async function startBotInner() {
   sock.ev.on(
     'call',
     async calls => {
+      if (myGeneration !== socketGeneration) return
+
       for (const call of calls) {
         try {
           // Hanya proses incoming offer
@@ -2113,14 +1955,11 @@ async function startBotInner() {
   sock.ev.on(
     'group-participants.update',
     async update => {
+      if (myGeneration !== socketGeneration) return
+
       try {
         console.log(
-          '👥 GROUP EVENT:',
-          JSON.stringify(
-            update,
-            null,
-            2
-          )
+          `👥 Group event | ${update?.id || 'unknown'} | ${update?.action || 'unknown'} | ${Array.isArray(update?.participants) ? update.participants.length : 0} participant(s)`
         )
         const jid =
           update.id
@@ -2452,6 +2291,11 @@ async function startBotInner() {
         connection ===
         'open'
       ) {
+        try {
+          const qrFile = `${process.cwd()}/pairing-qr.png`
+          if (fs.existsSync(qrFile)) fs.unlinkSync(qrFile)
+        } catch {}
+
         cancelReconnect()
 
         markConnectionStable(
