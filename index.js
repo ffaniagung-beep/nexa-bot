@@ -1554,6 +1554,65 @@ function resetReconnectState() {
 }
 
 // =====================================
+// AUTH SESSION SELF-REPAIR
+// =====================================
+
+const PAIR_META_FILE = '.nexa-pairing.json'
+
+function cleanPairNumber(value) {
+  return String(value || '').replace(/\D/g, '')
+}
+
+function numberFromJid(value) {
+  const raw = String(value || '').split('@')[0].split(':')[0]
+  const number = cleanPairNumber(raw)
+  return number.length >= 8 ? number : ''
+}
+
+function pairMetaPath(sessionFolder) {
+  return path.join(path.resolve(sessionFolder), PAIR_META_FILE)
+}
+
+function readSavedPairNumber(sessionFolder) {
+  try {
+    const data = JSON.parse(fs.readFileSync(pairMetaPath(sessionFolder), 'utf8'))
+    return cleanPairNumber(data?.number)
+  } catch {
+    return ''
+  }
+}
+
+function savePairNumber(sessionFolder, value) {
+  const number = cleanPairNumber(value)
+  if (!number) return ''
+
+  const folder = path.resolve(sessionFolder)
+  fs.mkdirSync(folder, { recursive: true })
+
+  const target = pairMetaPath(folder)
+  const temp = `${target}.tmp-${process.pid}-${Date.now()}`
+
+  fs.writeFileSync(temp, JSON.stringify({ number }, null, 2))
+  fs.renameSync(temp, target)
+  return number
+}
+
+function clearBrokenAuthSession(sessionFolder) {
+  const folder = path.resolve(sessionFolder)
+  if (!fs.existsSync(folder)) return
+
+  for (const entry of fs.readdirSync(folder)) {
+    if (entry === PAIR_META_FILE) continue
+
+    try {
+      fs.rmSync(path.join(folder, entry), { recursive: true, force: true })
+    } catch (err) {
+      console.error(`⚠️ Gagal membersihkan auth ${entry}:`, err?.message || err)
+    }
+  }
+}
+
+// =====================================
 // START BOT
 // =====================================
 
@@ -1628,75 +1687,40 @@ async function startBotInner() {
     '📂 Loading session...'
   )
 
+  const sessionFolder =
+    process.env.NEXA_SESSION_FOLDER ||
+    config.sessionFolder
+
   const {
     state,
     saveCreds
   } =
     await useMultiFileAuthState(
-      process.env.NEXA_SESSION_FOLDER ||
-      config.sessionFolder
+      sessionFolder
     )
 
-  // PAIRING MODE SELECTOR V2
+  // SESSION DETECTOR V3
+  // Ada auth terdaftar -> lanjut normal.
+  // Tidak ada / sudah dibersihkan -> langsung pairing code.
   let pairingMode =
-    process.env.NEXA_PAIR_NUMBER
-      ? 'code'
-      : null
+    state.creds.registered
+      ? null
+      : 'code'
 
-  if (
-    !state.creds.registered &&
-    !pairingMode
-  ) {
-    console.log('')
-    console.log(
-      '╭──「 NEXA PAIRING 」──╮'
-    )
-    console.log(
-      '│ [1] Pairing Code'
-    )
-    console.log(
-      '│ [2] QR Code'
-    )
-    console.log(
-      '╰─────────────────────╯'
-    )
-    console.log('')
+  let knownPairNumber =
+    cleanPairNumber(process.env.NEXA_PAIR_NUMBER) ||
+    readSavedPairNumber(sessionFolder) ||
+    numberFromJid(state.creds?.me?.id)
 
-    let choice = ''
-
-    while (
-      choice !== '1' &&
-      choice !== '2'
-    ) {
-      choice =
-        String(
-          await question(
-            'Pilih metode [1/2]: '
-          )
-        ).trim()
-
-      if (
-        choice !== '1' &&
-        choice !== '2'
-      ) {
-        console.log(
-          '❌ Pilih 1 atau 2.'
-        )
-      }
+  if (state.creds.registered) {
+    if (knownPairNumber) {
+      savePairNumber(sessionFolder, knownPairNumber)
     }
 
-    pairingMode =
-      choice === '2'
-        ? 'qr'
-        : 'code'
-
-    console.log('')
-
-    console.log(
-      pairingMode === 'qr'
-        ? '📷 Mode QR dipilih.'
-        : '🔢 Mode Pairing Code dipilih.'
-    )
+    console.log('✅ Session WhatsApp ditemukan. Melanjutkan koneksi...')
+  } else {
+    console.log('🔐 Session WhatsApp belum ada / tidak valid.')
+    console.log('🔢 Pairing Code akan digunakan otomatis.')
   }
 
   // LIVE WA WEB VERSION V1
@@ -2304,16 +2328,12 @@ async function startBotInner() {
     console.log('')
 
     let number =
-      process.env.NEXA_PAIR_NUMBER ||
+      knownPairNumber ||
       await question(
         'Nomor WA (contoh 628123456789): '
       )
 
-    number =
-      number.replace(
-        /\D/g,
-        ''
-      )
+    number = cleanPairNumber(number)
 
     if (!number) {
       console.log(
@@ -2324,6 +2344,8 @@ async function startBotInner() {
     }
 
     try {
+      knownPairNumber = savePairNumber(sessionFolder, number)
+
       console.log('')
       console.log(
         '⏳ Meminta pairing code...'
@@ -2406,6 +2428,15 @@ async function startBotInner() {
         } catch {}
 
         cancelReconnect()
+
+        const connectedNumber =
+          knownPairNumber ||
+          numberFromJid(sock.user?.id) ||
+          numberFromJid(state.creds?.me?.id)
+
+        if (connectedNumber) {
+          knownPairNumber = savePairNumber(sessionFolder, connectedNumber)
+        }
 
         markConnectionStable(
           myGeneration
@@ -2515,6 +2546,34 @@ async function startBotInner() {
           '🚪 Session logout / tidak valid.'
         )
 
+        const repairNumber =
+          knownPairNumber ||
+          cleanPairNumber(process.env.NEXA_PAIR_NUMBER) ||
+          readSavedPairNumber(sessionFolder) ||
+          numberFromJid(sock.user?.id) ||
+          numberFromJid(state.creds?.me?.id)
+
+        if (repairNumber) {
+          savePairNumber(sessionFolder, repairNumber)
+        }
+
+        // Socket lama tidak boleh menulis creds invalid lagi
+        // setelah folder auth dibersihkan.
+        try {
+          sock.ev.removeAllListeners('creds.update')
+        } catch {}
+
+        clearBrokenAuthSession(sessionFolder)
+
+        console.log(
+          '🧹 Session rusak dibersihkan.'
+        )
+        console.log(
+          repairNumber
+            ? '🔑 Menyiapkan Pairing Code baru otomatis...'
+            : '🔑 Nomor pairing belum tersimpan; akan diminta sekali.'
+        )
+
         if (
           typeof process.send === 'function' &&
           process.env.NEXA_CHILD_BOT === '1'
@@ -2525,7 +2584,10 @@ async function startBotInner() {
           })
         }
 
-        cancelReconnect()
+        // Logout bukan koneksi sementara. Reset counter lalu
+        // mulai ulang agar startup mendeteksi auth kosong dan pairing.
+        resetReconnectState()
+        scheduleReconnect(1500, myGeneration)
 
         return
       }
