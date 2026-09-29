@@ -25,10 +25,6 @@ import { loadCommandRegistry } from './lib/commandRegistry.js'
 import { startGroupScheduleService } from './lib/groupSchedule.js'
 import { startInvestmentGroupNewsService } from './lib/investmentGroupNews.js'
 import {
-  startChessRealtimeServer
-} from './lib/chessRealtime.js'
-
-import {
   installChannelPromo
 } from './lib/channelPromo.js'
 
@@ -1767,11 +1763,6 @@ async function startBotInner() {
     sock
   )
 
-
-  // =====================================
-  // CHESS REALTIME SERVICE
-  // =====================================
-  startChessRealtimeServer()
 
   // NEXA_INVESTMENT_GROUP_NEWS_V41
   startInvestmentGroupNewsService(
