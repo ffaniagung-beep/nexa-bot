@@ -1,7 +1,6 @@
 // NEXA_TIKTOK_SMART_V3
 // Video: Button Video/HD/MP3 • Slide: native WhatsApp album
 import {
-  AIRich,
   Button
 } from '@rexxhayanasi/elaina-baileys'
 
@@ -162,146 +161,79 @@ function progressBar(percent) {
   )
 }
 
-async function startTikTokRichStatus({
+async function startTikTokProgressStatus({
   sock,
   msg,
   jid,
   label
 }) {
   try {
-    const rich =
-      new AIRich(sock)
-        .setTitle(
-          '✦ NEXA • TIKTOK'
-        )
-        .setFooter(
-          'NEXA Downloader • AIRich'
-        )
-        .addText(
-          `⏳ Menyiapkan *${label}*...`,
-          {
-            id:
-              'status'
-          }
-        )
+    const sent =
+      await sock.sendMessage(
+        jid,
+        {
+          text:
+            `✦ *NEXA • TIKTOK*\n\n` +
+            `⏳ Menyiapkan *${label}*...`
+        },
+        {
+          quoted: msg
+        }
+      )
 
-    // Button replies are not always safe to reuse as AIRich quote context.
-    // Send the rich status standalone so Elaina can own/edit the message.
-    await rich.send(
-      jid,
-      {
-        forwardWrapper: true
-      }
-    )
+    if (!sent?.key) {
+      return null
+    }
 
     return {
-      mode: 'airich',
-      rich
+      sock,
+      jid,
+      key: sent.key
     }
   } catch (error) {
     console.warn(
-      '[TIKTOK] AIRich start fallback:',
-      error?.message ||
-      error
+      '[TIKTOK] progress start failed:',
+      error?.message || error
     )
-
-    try {
-      const sent =
-        await sock.sendMessage(
-          jid,
-          {
-            text:
-              `✦ *NEXA • TIKTOK*\n\n` +
-              `⏳ Menyiapkan *${label}*...`
-          },
-          {
-            quoted: msg
-          }
-        )
-
-      if (sent?.key) {
-        return {
-          mode: 'native',
-          sock,
-          jid,
-          key: sent.key
-        }
-      }
-    } catch (fallbackError) {
-      console.warn(
-        '[TIKTOK] native progress start failed:',
-        fallbackError?.message ||
-        fallbackError
-      )
-    }
-
     return null
   }
 }
 
-async function updateTikTokRichStatus(
+async function updateTikTokProgressStatus(
   status,
   text
 ) {
-  if (!status) {
+  if (!status?.key) {
     return false
   }
 
-  if (status.mode === 'native') {
-    try {
-      await status.sock.sendMessage(
-        status.jid,
-        {
-          text:
-            `✦ *NEXA • TIKTOK*\n\n${text}`,
-          edit:
-            status.key
-        }
-      )
-
-      return true
-    } catch (error) {
-      console.warn(
-        '[TIKTOK] native progress edit failed:',
-        error?.message ||
-        error
-      )
-      return false
-    }
-  }
-
-  const rich =
-    status.rich || status
-
   try {
-    rich.addText(
-      text,
+    await status.sock.sendMessage(
+      status.jid,
       {
-        replace:
-          'status'
+        text:
+          `✦ *NEXA • TIKTOK*\n\n${text}`,
+        edit: status.key
       }
     )
 
-    await rich.sendEdit()
     return true
   } catch (error) {
     console.warn(
-      '[TIKTOK] AIRich edit fallback:',
-      error?.message ||
-      error
+      '[TIKTOK] progress edit failed:',
+      error?.message || error
     )
-
     return false
   }
 }
 
 function createTikTokProgressUpdater({
-  rich,
+  status,
   label
 }) {
   let lastPercent = -5
   let lastAt = 0
-  let active = Boolean(rich)
+  let active = Boolean(status)
   let queue = Promise.resolve()
 
   const report = state => {
@@ -371,8 +303,8 @@ function createTikTokProgressUpdater({
       queue.then(
         async () => {
           const ok =
-            await updateTikTokRichStatus(
-              rich,
+            await updateTikTokProgressStatus(
+              status,
               text
             )
 
@@ -2594,32 +2526,27 @@ function makePanelBody(
 
   if (hasNormal || hasHd) {
     lines.push(
-      '🎬 *Pilih format video*'
+      '🎬 *Pilih unduhan:*'
     )
 
     if (hasNormal) {
       lines.push(
-        '• *Video* — dikirim langsung di WhatsApp.'
+        '• *Video* — versi biasa'
       )
     }
 
     if (hasHd) {
       lines.push(
-        '• *Video HD* — kualitas terbaik, dikirim sebagai dokumen MP4.'
+        '• *Video HD* — kualitas tertinggi'
       )
     }
   }
 
   if (result.downloads?.audio) {
     lines.push(
-      '• *MP3* — audio saja.'
+      '• *MP3* — audio'
     )
   }
-
-  lines.push(
-    '',
-    'Pilih salah satu tombol di bawah.'
-  )
 
   return lines.join('\n')
 }
@@ -2644,7 +2571,7 @@ async function sendTikTokPanel({
         )
       )
       .setFooter(
-        'Pilihan aktif 10 menit'
+        'Aktif 10 menit'
       )
 
   if (
@@ -2876,11 +2803,11 @@ async function deliverTikTokChoice({
         ? 'MP3'
         : 'Video'
 
-  let rich = null
+  let progressStatus = null
 
   try {
-    rich =
-      await startTikTokRichStatus({
+    progressStatus =
+      await startTikTokProgressStatus({
         sock,
         msg,
         jid,
@@ -2888,8 +2815,8 @@ async function deliverTikTokChoice({
       })
 
     // Always show a real starting state before the first network chunk arrives.
-    await updateTikTokRichStatus(
-      rich,
+    await updateTikTokProgressStatus(
+      progressStatus,
       `⬇️ Mengunduh *${label}*...\n\n` +
       `${progressBar(0)} *0%*\n` +
       '📦 Menunggu ukuran file dari server...'
@@ -2908,8 +2835,8 @@ async function deliverTikTokChoice({
         candidates[index]
 
       if (index > 0) {
-        await updateTikTokRichStatus(
-          rich,
+        await updateTikTokProgressStatus(
+          progressStatus,
           `↪️ Source ${label} utama gagal.\n` +
           'Mencoba source alternatif...'
         )
@@ -2917,7 +2844,7 @@ async function deliverTikTokChoice({
 
       const progressUpdate =
         createTikTokProgressUpdater({
-          rich,
+          status: progressStatus,
           label
         })
 
@@ -2954,8 +2881,8 @@ async function deliverTikTokChoice({
       )
     }
 
-    await updateTikTokRichStatus(
-      rich,
+    await updateTikTokProgressStatus(
+      progressStatus,
       `✅ Download selesai • *${humanBytes(downloaded.size)}*\n` +
       '📤 Mengirim ke WhatsApp...'
     )
@@ -3031,8 +2958,8 @@ async function deliverTikTokChoice({
           inlineError?.message || inlineError
         )
 
-        await updateTikTokRichStatus(
-          rich,
+        await updateTikTokProgressStatus(
+          progressStatus,
           '⚠️ WhatsApp menolak video inline.\n' +
           '📄 Mengirim file sebagai dokumen supaya tetap berhasil...'
         )
@@ -3062,8 +2989,8 @@ async function deliverTikTokChoice({
       }
     }
 
-    await updateTikTokRichStatus(
-      rich,
+    await updateTikTokProgressStatus(
+      progressStatus,
       `✅ *${label} berhasil dikirim*\n` +
       `📦 ${humanBytes(downloaded.size)}`
     )
@@ -3075,8 +3002,8 @@ async function deliverTikTokChoice({
       'unknown'
     )
   } catch (error) {
-    await updateTikTokRichStatus(
-      rich,
+    await updateTikTokProgressStatus(
+      progressStatus,
       `❌ *${label} gagal diproses*`
     )
 

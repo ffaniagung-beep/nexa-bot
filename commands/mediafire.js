@@ -1,8 +1,4 @@
 import {
-  AIRich
-} from '@rexxhayanasi/elaina-baileys'
-
-import {
   createWriteStream
 } from 'node:fs'
 
@@ -1168,82 +1164,73 @@ function progressBar(percent) {
   )
 }
 
-async function startMediaFireRichStatus({
+async function startMediaFireProgressStatus({
   sock,
   msg,
   jid
 }) {
   try {
-    const rich =
-      new AIRich(sock)
-        .setTitle(
-          '✦ NEXA • MEDIAFIRE'
-        )
-        .setFooter(
-          'NEXA Downloader • AIRich'
-        )
-        .addText(
-          '⏳ Mengambil metadata dan direct link file...',
-          {
-            id:
-              'status'
-          }
-        )
+    const sent =
+      await sock.sendMessage(
+        jid,
+        {
+          text:
+            '✦ *NEXA • MEDIAFIRE*\n\n' +
+            '⏳ Mengambil metadata dan direct link file...'
+        },
+        {
+          quoted: msg
+        }
+      )
 
-    await rich.send(
+    if (!sent?.key) {
+      return null
+    }
+
+    return {
+      sock,
       jid,
-      {
-        quoted:
-          msg,
-        forwardWrapper:
-          true
-      }
-    )
-
-    return rich
+      key: sent.key
+    }
   } catch (error) {
     console.warn(
-      '[MEDIAFIRE V4] AIRich start fallback:',
-      error?.message ||
-      error
+      '[MEDIAFIRE V4] progress start failed:',
+      error?.message || error
     )
-
     return null
   }
 }
 
-async function updateMediaFireRichStatus(
-  rich,
+async function updateMediaFireProgressStatus(
+  status,
   text
 ) {
-  if (!rich) {
+  if (!status?.key) {
     return false
   }
 
   try {
-    rich.addText(
-      text,
+    await status.sock.sendMessage(
+      status.jid,
       {
-        replace:
-          'status'
+        text:
+          `✦ *NEXA • MEDIAFIRE*\n\n${text}`,
+        edit: status.key
       }
     )
 
-    await rich.sendEdit()
     return true
   } catch (error) {
     console.warn(
-      '[MEDIAFIRE V4] AIRich edit fallback:',
-      error?.message ||
-      error
+      '[MEDIAFIRE V4] progress edit failed:',
+      error?.message || error
     )
-
     return false
   }
 }
 
 function createMediaFireProgressUpdater({
-  rich,
+  status,
   fileName
 }) {
   let lastPercent =
@@ -1253,7 +1240,7 @@ function createMediaFireProgressUpdater({
     0
 
   let active =
-    Boolean(rich)
+    Boolean(status)
 
   let queue =
     Promise.resolve()
@@ -1314,8 +1301,8 @@ function createMediaFireProgressUpdater({
         queue.then(
           async () => {
             const ok =
-              await updateMediaFireRichStatus(
-                rich,
+              await updateMediaFireProgressStatus(
+                status,
                 text
               )
 
@@ -1343,8 +1330,8 @@ function createMediaFireProgressUpdater({
       queue.then(
         async () => {
           const ok =
-            await updateMediaFireRichStatus(
-              rich,
+            await updateMediaFireProgressStatus(
+              status,
               `📁 *${fileName}*\n` +
               `⬇️ Mengunduh dari MediaFire...\n\n` +
               `📦 ${humanBytes(state.downloadedBytes)}`
@@ -1538,7 +1525,7 @@ export default {
 
     try {
       richStatus =
-        await startMediaFireRichStatus({
+        await startMediaFireProgressStatus({
           sock,
           msg,
           jid
@@ -1677,7 +1664,7 @@ export default {
         `${progressBar(0)} *0%*`
 
       const richUpdated =
-        await updateMediaFireRichStatus(
+        await updateMediaFireProgressStatus(
           richStatus,
           metadataText
         )
@@ -1703,7 +1690,7 @@ export default {
 
       progressUpdate =
         createMediaFireProgressUpdater({
-          rich:
+          status:
             richStatus,
           fileName
         })
@@ -1727,7 +1714,7 @@ export default {
       await progressUpdate
         ?.flush?.()
 
-      await updateMediaFireRichStatus(
+      await updateMediaFireProgressStatus(
         richStatus,
         `📁 *${fileName}*\n` +
         `⬇️ Download selesai • ${humanBytes(downloaded.actualBytes)}\n\n` +
@@ -1792,7 +1779,7 @@ export default {
         }
       )
 
-      await updateMediaFireRichStatus(
+      await updateMediaFireProgressStatus(
         richStatus,
         `✅ *Selesai*\n\n` +
         `📁 *${fileName}*\n` +
@@ -1814,7 +1801,7 @@ export default {
               refunded: false
             }
 
-      await updateMediaFireRichStatus(
+      await updateMediaFireProgressStatus(
         richStatus,
         `❌ *Download gagal*\n\n${errorText(error)}`
       )
