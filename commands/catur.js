@@ -27,7 +27,7 @@ export default {
   description: 'Main catur vs NEXA AI atau player lain',
   usage: '.catur',
 
-  async run({ sock, msg, jid }) {
+  async run({ sock, msg, jid, isOwner = false }) {
     if (!fs.existsSync(GAME_FILE)) {
       return sock.sendMessage(
         jid,
@@ -50,9 +50,37 @@ export default {
       msg?.key?.remoteJidAlt ||
       jid
 
-    const user = getUser(playerJid)
+    // Core NEXA sudah punya register gate. Di sini kita hanya
+    // sinkronkan status untuk UI catur, dengan Owner tetap bypass.
+    // Beberapa versi Baileys bisa membawa PN/LID di field berbeda,
+    // jadi cek kandidat identitas yang relevan agar UI tidak salah
+    // menganggap user terdaftar sebagai belum register.
+    const identityCandidates = [
+      playerJid,
+      msg?.key?.participantAlt,
+      msg?.key?.remoteJidAlt,
+      msg?.key?.participant,
+      msg?.participant,
+      msg?.key?.remoteJid,
+      jid
+    ].filter(Boolean)
+
+    let user = null
+    let registered = Boolean(isOwner)
+
+    for (const candidate of identityCandidates) {
+      const candidateUser = getUser(candidate)
+      if (!user && candidateUser?.playerId) user = candidateUser
+      if (candidateUser?.registeredAt) {
+        user = candidateUser
+        registered = true
+        break
+      }
+    }
+
+    user = user || getUser(playerJid)
+
     const isGroup = String(jid).endsWith('@g.us')
-    const registered = Boolean(user?.registeredAt)
     const wsUrl = getChessPublicWsUrl()
     const multiplayerReady =
       !isGroup && registered && chessMultiplayerConfigured()
@@ -61,7 +89,8 @@ export default {
     if (multiplayerReady) {
       const menu = createChessMenuSession({
         chatJid: jid,
-        playerJid
+        playerJid,
+        registrationVerified: registered
       })
       menuToken = menu.token
     }

@@ -30,6 +30,7 @@ html,body{
 }
 
 .card{
+  position:relative;
   height:100%;
   overflow:hidden;
   border-radius:22px;
@@ -212,6 +213,16 @@ button:active{
 
 .menu-screen.hidden{display:none}
 
+/* WebView WhatsApp kadang tidak menutup elemen game dengan overlay
+   seperti browser biasa. Saat menu aktif, sembunyikan game secara nyata. */
+body.menu-open header,
+body.menu-open .game,
+body.menu-open .info,
+body.menu-open .bottom{
+  visibility:hidden;
+  pointer-events:none;
+}
+
 .menu-box{
   width:100%;
   max-width:390px;
@@ -358,7 +369,7 @@ button:active{
 </style>
 </head>
 
-<body>
+<body class="menu-open">
 
 <div class="app">
 <div class="card">
@@ -2044,6 +2055,7 @@ function reportResult(result){
 }
 
 function connectMatch(){
+  document.body.classList.remove('menu-open')
   currentMode='multi'
   playerColor=NEXA_CONFIG.playerColor==='b'?'b':'w'
   flipped=playerColor==='b'
@@ -2158,6 +2170,7 @@ function configureMultiplayerButton(){
 }
 
 function showMenu(message='Pilih salah satu mode.'){
+  document.body.classList.add('menu-open')
   thinking=false
   selected=null
   options=[]
@@ -2178,6 +2191,7 @@ function showMenu(message='Pilih salah satu mode.'){
 }
 
 function startSolo(){
+  document.body.classList.remove('menu-open')
   menuScreen.classList.add('hidden')
   restart()
 }
