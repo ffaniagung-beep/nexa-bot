@@ -1,9 +1,13 @@
 import 'dotenv/config'
 
-const owner = String(process.env.NEXA_OWNER || '')
+const envOwners = String(process.env.NEXA_OWNER || '')
   .split(',')
   .map(value => value.replace(/\D/g, ''))
   .filter(Boolean)
+
+const owner = envOwners.length
+  ? envOwners
+  : ['62882006409303']
 
 export default {
   botName: 'NEXA-BOT',
