@@ -71,7 +71,7 @@ export default {
           ],
 
           height:
-            500
+            510
         }
       )
     } catch (err) {

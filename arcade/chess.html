@@ -197,6 +197,164 @@ canvas{
 button:active{
   transform:scale(.94);
 }
+
+
+.menu-screen{
+  position:absolute;
+  inset:0;
+  z-index:20;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+  background:linear-gradient(160deg,#0b1020,#03050d);
+}
+
+.menu-screen.hidden{display:none}
+
+.menu-box{
+  width:100%;
+  max-width:390px;
+  padding:22px 18px;
+  border-radius:20px;
+  border:1px solid #31505d;
+  background:#07101c;
+  box-shadow:0 16px 44px #000b;
+  text-align:center;
+}
+
+.menu-logo{
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:2px;
+  color:#48e8ff;
+}
+
+.menu-title{
+  margin-top:8px;
+  font-size:26px;
+  font-weight:900;
+}
+
+.menu-copy{
+  margin:8px 0 18px;
+  color:#8190aa;
+  font-size:11px;
+  line-height:1.55;
+}
+
+.menu-option{
+  width:100%;
+  min-height:58px;
+  margin-top:10px;
+  border-radius:14px;
+  border:1px solid #ffffff14;
+  background:#ffffff0b;
+  color:#fff;
+  text-align:left;
+  padding:11px 13px;
+}
+
+.menu-option strong{
+  display:block;
+  font-size:14px;
+}
+
+.menu-option span{
+  display:block;
+  margin-top:4px;
+  color:#75829c;
+  font-size:9px;
+}
+
+.menu-option.primary{
+  border-color:#48e8ff55;
+  background:#48e8ff12;
+}
+
+#menuStatus{
+  min-height:31px;
+  margin-top:14px;
+  color:#9aa9bd;
+  font-size:10px;
+  line-height:1.45;
+}
+
+.menu-panel.hidden{display:none}
+
+.menu-option:disabled{
+  opacity:.38;
+  filter:grayscale(1);
+  cursor:not-allowed;
+  transform:none;
+}
+
+.room-input-row{
+  display:flex;
+  gap:8px;
+  margin-top:10px;
+}
+
+.room-input{
+  flex:1;
+  min-width:0;
+  height:44px;
+  padding:0 12px;
+  border-radius:12px;
+  border:1px solid #ffffff1c;
+  outline:none;
+  background:#030813;
+  color:#fff;
+  font-size:15px;
+  font-weight:900;
+  letter-spacing:2px;
+  text-transform:uppercase;
+}
+
+.room-input:focus{
+  border-color:#48e8ff88;
+  box-shadow:0 0 0 2px #48e8ff12;
+}
+
+.room-join{
+  width:82px;
+  border-radius:12px;
+  border:1px solid #48e8ff55;
+  background:#48e8ff14;
+  color:#fff;
+  font-weight:900;
+}
+
+.room-code{
+  margin:18px 0 8px;
+  padding:14px 10px;
+  border-radius:16px;
+  border:1px solid #48e8ff55;
+  background:#48e8ff0d;
+  color:#b8f7ff;
+  font-size:28px;
+  font-weight:1000;
+  letter-spacing:5px;
+}
+
+.room-hint{
+  color:#7f8da7;
+  font-size:10px;
+  line-height:1.55;
+}
+
+.menu-back{
+  width:100%;
+  height:42px;
+  margin-top:12px;
+  border-radius:12px;
+  border:1px solid #ffffff12;
+  background:#ffffff08;
+  color:#aeb9c9;
+  font-size:11px;
+  font-weight:800;
+}
+
 </style>
 </head>
 
@@ -204,6 +362,63 @@ button:active{
 
 <div class="app">
 <div class="card">
+
+<div class="menu-screen" id="menuScreen">
+  <div class="menu-box">
+    <div class="menu-logo">NEXA ARCADE // CHESS</div>
+
+    <div class="menu-panel" id="modePanel">
+      <div class="menu-title">♟️ PILIH MODE</div>
+      <div class="menu-copy">Pilih cara bermain catur.</div>
+
+      <button class="menu-option primary" id="soloMode">
+        <strong>🤖 Main sendiri</strong>
+        <span>Lawan NEXA AI. Kamu selalu bermain dari sisi bawah.</span>
+      </button>
+
+      <button class="menu-option" id="multiMode">
+        <strong>👥 Main bareng</strong>
+        <span id="multiModeInfo">Main real-time dengan satu player NEXA.</span>
+      </button>
+    </div>
+
+    <div class="menu-panel hidden" id="roomPanel">
+      <div class="menu-title">👥 MAIN BARENG</div>
+      <div class="menu-copy">Buat room baru atau masukkan ID room teman.</div>
+
+      <button class="menu-option primary" id="addRoom">
+        <strong>➕ Add Room</strong>
+        <span>Buat ID room unik sekali pakai lalu tunggu lawan masuk.</span>
+      </button>
+
+      <div class="room-input-row">
+        <input
+          class="room-input"
+          id="roomInput"
+          maxlength="8"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          placeholder="ROOM ID"
+        >
+        <button class="room-join" id="joinRoom">JOIN</button>
+      </div>
+
+      <button class="menu-back" id="roomBack">← Kembali</button>
+    </div>
+
+    <div class="menu-panel hidden" id="waitingPanel">
+      <div class="menu-title">⏳ MENUNGGU PLAYER</div>
+      <div class="menu-copy">Bagikan ID ini ke teman. Room hanya menerima satu lawan.</div>
+      <div class="room-code" id="roomCode">--------</div>
+      <div class="room-hint">Player kedua buka <b>.catur</b> di private NEXA → Main bareng → masukkan ID room ini.</div>
+      <button class="menu-back" id="cancelRoom">Batalkan room</button>
+    </div>
+
+    <div id="menuStatus">Pilih salah satu mode.</div>
+  </div>
+</div>
+
 
 <header>
   <div>
@@ -262,6 +477,7 @@ button:active{
 
 <script>
 (()=>{
+const NEXA_CONFIG=__NEXA_CHESS_CONFIG__
 const canvas=document.getElementById('board')
 const ctx=canvas.getContext('2d')
 
@@ -271,6 +487,20 @@ const newBtn=document.getElementById('newGame')
 const muteBtn=document.getElementById('mute')
 const flipBtn=document.getElementById('flip')
 const youColorEl=document.getElementById('youColor')
+const menuScreen=document.getElementById('menuScreen')
+const menuStatus=document.getElementById('menuStatus')
+const modePanel=document.getElementById('modePanel')
+const roomPanel=document.getElementById('roomPanel')
+const waitingPanel=document.getElementById('waitingPanel')
+const soloMode=document.getElementById('soloMode')
+const multiMode=document.getElementById('multiMode')
+const multiModeInfo=document.getElementById('multiModeInfo')
+const addRoom=document.getElementById('addRoom')
+const joinRoom=document.getElementById('joinRoom')
+const roomInput=document.getElementById('roomInput')
+const roomBack=document.getElementById('roomBack')
+const cancelRoom=document.getElementById('cancelRoom')
+const roomCode=document.getElementById('roomCode')
 
 const S=50
 
@@ -304,8 +534,14 @@ let thinking=false
 // Kalau nanti playerColor dibuat hitam,
 // orientation cukup mengikuti:
 // playerColor === 'b'
-const playerColor='w'
+let playerColor=NEXA_CONFIG.playerColor==='b'?'b':'w'
 const aiColor='b'
+let currentMode='multi'
+let connected=false
+let matchSocket=null
+let pendingMove=false
+let moveSeq=0
+let resultSent=false
 
 let flipped=
   playerColor==='b'
@@ -315,6 +551,8 @@ let selectPulse=0
 
 let audio=null
 let muted=false
+let ended=false
+let menuSocket=null
 
 const TIMEOUT={}
 
@@ -1504,29 +1742,40 @@ function setStatus(){
 
   if(t){
     thinking=false
+    ended=true
+    pendingMove=false
+    newBtn.textContent='KEMBALI KE MENU'
+    newBtn.disabled=false
+    setTimeout(()=>showMenu('Game selesai. Pilih mode untuk bermain lagi.'),2500)
 
     if(t.type==='draw'){
-      statusEl.textContent=
-        'DRAW • Stalemate'
-
-      detailEl.textContent=
-        'Tidak ada langkah legal.'
-    }else if(t.loser==='b'){
-      statusEl.textContent=
-        'CHECKMATE • YOU WIN 🏆'
-
-      detailEl.textContent=
-        'NEXA AI defeated.'
-
-      soundWin()
+      statusEl.textContent='DRAW • Stalemate'
+      detailEl.textContent='Tidak ada langkah legal.'
+      if(currentMode==='multi')reportResult('draw')
     }else{
-      statusEl.textContent=
-        'CHECKMATE • NEXA WINS'
+      const winner=t.loser==='w'?'b':'w'
 
-      detailEl.textContent=
-        'Coba rematch 😭'
-
-      soundLose()
+      if(currentMode==='solo'){
+        if(winner==='w'){
+          statusEl.textContent='CHECKMATE • YOU WIN 🏆'
+          detailEl.textContent='NEXA AI defeated.'
+          soundWin()
+        }else{
+          statusEl.textContent='CHECKMATE • NEXA WINS'
+          detailEl.textContent='Coba lagi 😭'
+          soundLose()
+        }
+      }else if(winner===playerColor){
+        statusEl.textContent='CHECKMATE • KAMU MENANG 🏆'
+        detailEl.textContent=`${NEXA_CONFIG.opponentName||'Lawan'} kalah.`
+        soundWin()
+        reportResult(playerColor==='w'?'white':'black')
+      }else{
+        statusEl.textContent='CHECKMATE • KAMU KALAH'
+        detailEl.textContent=`${NEXA_CONFIG.opponentName||'Lawan'} menang.`
+        soundLose()
+        reportResult(playerColor==='w'?'black':'white')
+      }
     }
 
     return true
@@ -1534,16 +1783,25 @@ function setStatus(){
 
   if(inCheck(game,game.turn)){
     statusEl.textContent=
-      game.turn==='w'
-        ? 'CHECK! King lu diserang.'
-        : 'CHECK! NEXA dalam bahaya.'
+      game.turn===playerColor
+        ? 'CHECK! Raja kamu diserang.'
+        : currentMode==='solo'
+          ? 'CHECK! NEXA dalam bahaya.'
+          : `CHECK! ${NEXA_CONFIG.opponentName||'Lawan'} dalam bahaya.`
 
     soundCheck()
-  }else{
+  }else if(currentMode==='solo'){
     statusEl.textContent=
       game.turn==='w'
         ? 'Your move.'
         : 'NEXA sedang berpikir...'
+  }else if(!connected){
+    statusEl.textContent='Menghubungkan match...'
+  }else{
+    statusEl.textContent=
+      game.turn===playerColor
+        ? 'Giliran kamu.'
+        : `${NEXA_CONFIG.opponentName||'Lawan'} sedang jalan...`
   }
 
   return false
@@ -1552,38 +1810,36 @@ function setStatus(){
 function doHumanMove(m){
   initAudio()
 
-  const capture=
-    capturedByMove(game,m)
+  if(currentMode==='multi'){
+    if(!connected||pendingMove||!matchSocket||matchSocket.readyState!==1){
+      statusEl.textContent='Koneksi match belum siap.'
+      return
+    }
 
-  game=
-    applyMove(game,m)
+    pendingMove=true
+    statusEl.textContent='Mengirim langkah...'
 
-  lastMove={
-    fy:m.fy,
-    fx:m.fx,
-    ty:m.ty,
-    tx:m.tx
+    matchSocket.send(JSON.stringify({
+      type:'move',
+      seq:moveSeq,
+      move:{fy:m.fy,fx:m.fx,ty:m.ty,tx:m.tx}
+    }))
+    return
   }
 
+  const capture=capturedByMove(game,m)
+  game=applyMove(game,m)
+  lastMove={fy:m.fy,fx:m.fx,ty:m.ty,tx:m.tx}
   selected=null
   options=[]
-
-  capture
-    ? soundCapture()
-    : soundMove()
-
+  capture?soundCapture():soundMove()
   render()
 
   if(setStatus())return
 
   thinking=true
-
-  statusEl.textContent=
-    'NEXA sedang berpikir...'
-
-  detailEl.textContent=
-    'AI menganalisis posisi ♟️'
-
+  statusEl.textContent='NEXA sedang berpikir...'
+  detailEl.textContent='AI menganalisis posisi ♟️'
   setTimeout(aiTurn,70)
 }
 
@@ -1636,7 +1892,7 @@ canvas.addEventListener(
   e=>{
     if(
       thinking||
-      game.turn!=='w'||
+      game.turn!==playerColor||
       terminal(game)
     ){
       return
@@ -1666,7 +1922,7 @@ canvas.addEventListener(
 
     if(
       p&&
-      p[0]==='w'
+      p[0]===playerColor
     ){
       selected={
         y,
@@ -1692,8 +1948,17 @@ canvas.addEventListener(
 
 function restart(){
   initAudio()
+  currentMode='solo'
+  playerColor='w'
+  connected=false
+  pendingMove=false
+  resultSent=false
+  moveSeq=0
+  if(matchSocket){try{matchSocket.close()}catch{};matchSocket=null}
 
   game=newState()
+  ended=false
+  newBtn.textContent='NEW GAME'
   selected=null
   options=[]
   thinking=false
@@ -1720,9 +1985,360 @@ function restart(){
   render()
 }
 
+function resolveNetworkMove(entry){
+  return legalMoves(game).find(m=>
+    m.fy===Number(entry.fy)&&
+    m.fx===Number(entry.fx)&&
+    m.ty===Number(entry.ty)&&
+    m.tx===Number(entry.tx)
+  )||null
+}
+
+function applyNetworkMove(entry){
+  const move=resolveNetworkMove(entry)
+  if(!move){
+    statusEl.textContent='⚠️ Sinkronisasi langkah gagal.'
+    detailEl.textContent='Buka ulang papan catur untuk resync.'
+    return false
+  }
+
+  const capture=capturedByMove(game,move)
+  game=applyMove(game,move)
+  lastMove={fy:move.fy,fx:move.fx,ty:move.ty,tx:move.tx}
+  selected=null
+  options=[]
+  pendingMove=false
+  moveSeq++
+  capture?soundCapture():soundMove()
+  render()
+  setStatus()
+  return true
+}
+
+function replayMoves(moves=[]){
+  game=newState()
+  lastMove=null
+  selected=null
+  options=[]
+  moveSeq=0
+  pendingMove=false
+  resultSent=false
+
+  for(const entry of moves){
+    const move=resolveNetworkMove(entry)
+    if(!move)break
+    game=applyMove(game,move)
+    lastMove={fy:move.fy,fx:move.fx,ty:move.ty,tx:move.tx}
+    moveSeq++
+  }
+
+  flipped=playerColor==='b'
+  render()
+  setStatus()
+}
+
+function reportResult(result){
+  if(currentMode!=='multi'||resultSent||!matchSocket||matchSocket.readyState!==1)return
+  resultSent=true
+  try{matchSocket.send(JSON.stringify({type:'result',result}))}catch{}
+}
+
+function connectMatch(){
+  currentMode='multi'
+  playerColor=NEXA_CONFIG.playerColor==='b'?'b':'w'
+  flipped=playerColor==='b'
+  youColorEl.textContent=playerColor==='w'?'WHITE ♙':'BLACK ♟'
+  detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName||'Player'} • multiplayer real-time`
+  newBtn.textContent='GAME AKTIF'
+  newBtn.disabled=true
+  menuScreen.classList.add('hidden')
+  statusEl.textContent='Menghubungkan match...'
+  render()
+
+  if(!NEXA_CONFIG.wsUrl||!NEXA_CONFIG.matchToken){
+    statusEl.textContent='❌ Konfigurasi multiplayer tidak lengkap.'
+    return
+  }
+
+  try{
+    const ws=new WebSocket(NEXA_CONFIG.wsUrl)
+    matchSocket=ws
+
+    ws.onopen=()=>{
+      ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.matchToken}))
+    }
+
+    ws.onmessage=e=>{
+      let data
+      try{data=JSON.parse(e.data)}catch{return}
+
+      if(data.type==='state'){
+        connected=true
+        playerColor=data.color==='b'?'b':'w'
+        flipped=playerColor==='b'
+        youColorEl.textContent=playerColor==='w'?'WHITE ♙':'BLACK ♟'
+        NEXA_CONFIG.opponentName=data.opponentName||NEXA_CONFIG.opponentName
+        replayMoves(Array.isArray(data.moves)?data.moves:[])
+        detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName||'Player'} • multiplayer real-time`
+        return
+      }
+
+      if(data.type==='move'){
+        if(Number(data.seq)!==moveSeq){
+          ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.matchToken}))
+          return
+        }
+        applyNetworkMove(data.move||{})
+        return
+      }
+
+      if(data.type==='resync'){
+        replayMoves(Array.isArray(data.moves)?data.moves:[])
+        return
+      }
+
+      if(data.type==='result'){
+        // Posisi lokal sudah menentukan hasil. Pesan ini hanya finalisasi server.
+        return
+      }
+
+      if(data.type==='error'){
+        pendingMove=false
+        statusEl.textContent='⚠️ '+(data.code||'Server menolak aksi.')
+      }
+    }
+
+    ws.onerror=()=>{
+      if(matchSocket!==ws)return
+      connected=false
+      statusEl.textContent='❌ Koneksi multiplayer bermasalah.'
+    }
+
+    ws.onclose=()=>{
+      if(matchSocket!==ws)return
+      matchSocket=null
+      connected=false
+      if(!ended){
+        statusEl.textContent='Koneksi terputus. Mencoba sambung ulang...'
+        setTimeout(()=>{if(!ended&&!matchSocket)connectMatch()},1200)
+      }
+    }
+  }catch{
+    statusEl.textContent='❌ WebSocket multiplayer tidak tersedia.'
+  }
+}
+
+function setMenuPanel(name){
+  modePanel.classList.toggle('hidden',name!=='mode')
+  roomPanel.classList.toggle('hidden',name!=='room')
+  waitingPanel.classList.toggle('hidden',name!=='waiting')
+}
+
+function configureMultiplayerButton(){
+  if(NEXA_CONFIG.isGroup){
+    multiMode.disabled=true
+    multiModeInfo.textContent='Main bareng hanya support private chat.'
+    return
+  }
+
+  if(!NEXA_CONFIG.registered){
+    multiMode.disabled=true
+    multiModeInfo.textContent='Register NEXA dulu untuk membuka multiplayer.'
+    return
+  }
+
+  if(!NEXA_CONFIG.multiplayerReady||!NEXA_CONFIG.wsUrl||!NEXA_CONFIG.menuToken){
+    multiMode.disabled=true
+    multiModeInfo.textContent='Server multiplayer belum aktif.'
+    return
+  }
+
+  multiMode.disabled=false
+  multiModeInfo.textContent='Main real-time dengan satu player NEXA lewat Room ID.'
+}
+
+function showMenu(message='Pilih salah satu mode.'){
+  thinking=false
+  selected=null
+  options=[]
+  if(menuSocket){
+    try{menuSocket.close()}catch{}
+    menuSocket=null
+  }
+  if(ended&&matchSocket){
+    try{matchSocket.close()}catch{}
+    matchSocket=null
+    connected=false
+  }
+  newBtn.disabled=false
+  setMenuPanel('mode')
+  configureMultiplayerButton()
+  menuStatus.textContent=message
+  menuScreen.classList.remove('hidden')
+}
+
+function startSolo(){
+  menuScreen.classList.add('hidden')
+  restart()
+}
+
+function showMultiplayerMenu(){
+  if(multiMode.disabled)return
+  setMenuPanel('room')
+  roomInput.value=''
+  menuStatus.textContent='Buat room atau masukkan Room ID.'
+}
+
+function normalizeRoomInput(){
+  roomInput.value=String(roomInput.value||'')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g,'')
+    .slice(0,8)
+}
+
+function beginMatchedGame(data){
+  if(!data||!data.matchToken)return
+  NEXA_CONFIG.matchToken=data.matchToken
+  NEXA_CONFIG.playerColor=data.playerColor==='b'?'b':'w'
+  NEXA_CONFIG.opponentName=data.opponentName||'Player'
+  if(menuSocket){
+    try{menuSocket.close()}catch{}
+    menuSocket=null
+  }
+  connectMatch()
+}
+
+function openRoomSocket(action){
+  if(!NEXA_CONFIG.wsUrl||!NEXA_CONFIG.menuToken){
+    menuStatus.textContent='Server multiplayer belum tersedia.'
+    return
+  }
+
+  if(menuSocket){
+    try{menuSocket.close()}catch{}
+    menuSocket=null
+  }
+
+  menuStatus.textContent='Menghubungkan ke server multiplayer...'
+
+  try{
+    const ws=new WebSocket(NEXA_CONFIG.wsUrl)
+    menuSocket=ws
+    let actionSent=false
+
+    ws.onopen=()=>{
+      ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.menuToken}))
+    }
+
+    ws.onmessage=e=>{
+      let data
+      try{data=JSON.parse(e.data)}catch{return}
+
+      if(data.type==='menu_ready'){
+        if(data.roomId&&action?.type==='create_room'){
+          roomCode.textContent=data.roomId
+          setMenuPanel('waiting')
+          menuStatus.textContent='Room aktif • menunggu player kedua...'
+          return
+        }
+        if(!actionSent&&action){
+          actionSent=true
+          ws.send(JSON.stringify(action))
+        }
+        return
+      }
+
+      if(data.type==='room_created'){
+        roomCode.textContent=data.roomId||'--------'
+        setMenuPanel('waiting')
+        menuStatus.textContent='Room aktif • menunggu player kedua...'
+        return
+      }
+
+      if(data.type==='room_cancelled'){
+        try{ws.close()}catch{}
+        setMenuPanel('room')
+        menuStatus.textContent='Room dibatalkan.'
+        return
+      }
+
+      if(data.type==='match_ready'){
+        menuStatus.textContent='✅ Lawan ditemukan. Menyiapkan papan...'
+        beginMatchedGame(data)
+        return
+      }
+
+      if(data.type==='error'){
+        const map={
+          PRIVATE_ONLY:'Main bareng hanya support private chat.',
+          REGISTER_REQUIRED:'Register NEXA dulu sebelum main bareng.',
+          ROOM_NOT_FOUND:'Room ID tidak ditemukan atau sudah dipakai.',
+          ROOM_ALREADY_OPEN:'Kamu masih punya room aktif. Batalkan dulu room lama.',
+          CANNOT_JOIN_SELF:'Kamu tidak bisa join room milik sendiri.',
+          HOST_OFFLINE:'Pemilik room sudah tidak menunggu. Minta dia buka room lagi.',
+          INVALID_TOKEN:'Sesi catur sudah kedaluwarsa. Jalankan .catur lagi.'
+        }
+        menuStatus.textContent='⚠️ '+(map[data.code]||data.code||'Aksi multiplayer gagal.')
+      }
+    }
+
+    ws.onerror=()=>{
+      menuStatus.textContent='❌ Gagal terhubung ke server multiplayer.'
+    }
+
+    ws.onclose=()=>{
+      if(menuSocket===ws)menuSocket=null
+    }
+  }catch{
+    menuStatus.textContent='❌ WebSocket multiplayer tidak tersedia.'
+  }
+}
+
+soloMode.addEventListener('click',startSolo)
+multiMode.addEventListener('click',showMultiplayerMenu)
+
+addRoom.addEventListener('click',()=>{
+  openRoomSocket({type:'create_room'})
+})
+
+roomInput.addEventListener('input',normalizeRoomInput)
+roomInput.addEventListener('keydown',e=>{
+  if(e.key==='Enter')joinRoom.click()
+})
+
+joinRoom.addEventListener('click',()=>{
+  normalizeRoomInput()
+  const id=roomInput.value
+  if(id.length!==8){
+    menuStatus.textContent='Masukkan Room ID 8 karakter.'
+    return
+  }
+  openRoomSocket({type:'join_room',roomId:id})
+})
+
+roomBack.addEventListener('click',()=>{
+  if(menuSocket){try{menuSocket.close()}catch{};menuSocket=null}
+  setMenuPanel('mode')
+  menuStatus.textContent='Pilih salah satu mode.'
+})
+
+cancelRoom.addEventListener('click',()=>{
+  if(menuSocket&&menuSocket.readyState===1){
+    menuSocket.send(JSON.stringify({type:'cancel_room'}))
+    return
+  }
+  openRoomSocket({type:'cancel_room'})
+})
+
 newBtn.addEventListener(
   'click',
-  restart
+  ()=>{
+    if(ended||terminal(game)){
+      showMenu('Game selesai. Pilih mode untuk bermain lagi.')
+      return
+    }
+    restart()
+  }
 )
 
 muteBtn.addEventListener(
@@ -1783,6 +2399,7 @@ function animateSelection(){
 }
 
 render()
+showMenu()
 requestAnimationFrame(
   animateSelection
 )

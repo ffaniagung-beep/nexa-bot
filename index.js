@@ -25,6 +25,10 @@ import { loadCommandRegistry } from './lib/commandRegistry.js'
 import { startGroupScheduleService } from './lib/groupSchedule.js'
 import { startInvestmentGroupNewsService } from './lib/investmentGroupNews.js'
 import {
+  startChessRealtimeServer
+} from './lib/chessRealtime.js'
+
+import {
   installChannelPromo
 } from './lib/channelPromo.js'
 
@@ -1763,6 +1767,12 @@ async function startBotInner() {
     sock
   )
 
+
+  // =====================================
+  // CHESS REALTIME SERVICE
+  // =====================================
+  startChessRealtimeServer()
+
   // NEXA_INVESTMENT_GROUP_NEWS_V41
   startInvestmentGroupNewsService(
     sock
@@ -2715,6 +2725,7 @@ async function startBotInner() {
               err
             )
           }
+
 
           // HUTAONATOR REPLY: scoped to player/chat and latest prompt.
           // Before self-message filtering so the owner can play from the bot account.
