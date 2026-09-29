@@ -1,6 +1,7 @@
 // NEXA_TIKTOK_SMART_V3
 // Video: Button Video/HD/MP3 • Slide: native WhatsApp album
 import {
+  AIRich,
   Button
 } from '@rexxhayanasi/elaina-baileys'
 
@@ -92,6 +93,263 @@ function compactNumber(value) {
   ).format(
     Number(value)
   )
+}
+
+function humanBytes(value) {
+  const size =
+    Number(value)
+
+  if (
+    !Number.isFinite(size) ||
+    size < 0
+  ) {
+    return '-'
+  }
+
+  if (size < 1024) {
+    return `${Math.round(size)} B`
+  }
+
+  const units = [
+    'KB',
+    'MB',
+    'GB'
+  ]
+
+  let current = size
+  let unit = 'B'
+
+  for (const next of units) {
+    current /= 1024
+    unit = next
+
+    if (
+      current < 1024 ||
+      next === units.at(-1)
+    ) {
+      break
+    }
+  }
+
+  const digits =
+    current >= 100
+      ? 0
+      : current >= 10
+        ? 1
+        : 2
+
+  return `${current.toFixed(digits)} ${unit}`
+}
+
+function progressBar(percent) {
+  const safe =
+    Math.max(
+      0,
+      Math.min(
+        100,
+        Number(percent) || 0
+      )
+    )
+
+  const filled =
+    Math.round(
+      safe / 10
+    )
+
+  return (
+    '█'.repeat(filled) +
+    '░'.repeat(10 - filled)
+  )
+}
+
+async function startTikTokRichStatus({
+  sock,
+  msg,
+  jid,
+  label
+}) {
+  try {
+    const rich =
+      new AIRich(sock)
+        .setTitle(
+          '✦ NEXA • TIKTOK'
+        )
+        .setFooter(
+          'NEXA Downloader • AIRich'
+        )
+        .addText(
+          `⏳ Menyiapkan *${label}*...`,
+          {
+            id:
+              'status'
+          }
+        )
+
+    await rich.send(
+      jid,
+      {
+        quoted:
+          msg
+      }
+    )
+
+    return rich
+  } catch (error) {
+    console.warn(
+      '[TIKTOK] AIRich start fallback:',
+      error?.message ||
+      error
+    )
+
+    await sock.sendMessage(
+      jid,
+      {
+        text:
+          `✦ *NEXA • TIKTOK*
+
+` +
+          `⏳ Menyiapkan *${label}*...`
+      },
+      {
+        quoted: msg
+      }
+    )
+
+    return null
+  }
+}
+
+async function updateTikTokRichStatus(
+  rich,
+  text
+) {
+  if (!rich) {
+    return false
+  }
+
+  try {
+    rich.addText(
+      text,
+      {
+        replace:
+          'status'
+      }
+    )
+
+    await rich.sendEdit()
+    return true
+  } catch (error) {
+    console.warn(
+      '[TIKTOK] AIRich edit fallback:',
+      error?.message ||
+      error
+    )
+
+    return false
+  }
+}
+
+function createTikTokProgressUpdater({
+  rich,
+  label
+}) {
+  let lastPercent = -5
+  let lastAt = 0
+  let active = Boolean(rich)
+  let queue = Promise.resolve()
+
+  const report = state => {
+    if (!active) {
+      return
+    }
+
+    const now = Date.now()
+    const percent =
+      Number.isFinite(
+        Number(state?.percent)
+      )
+        ? Number(state.percent)
+        : null
+
+    let text = ''
+
+    if (percent !== null) {
+      const bucket =
+        percent >= 100
+          ? 100
+          : Math.floor(
+              percent / 5
+            ) * 5
+
+      if (
+        bucket < 100 &&
+        (
+          (
+            bucket <= lastPercent &&
+            now - lastAt < 2000
+          ) ||
+          (
+            bucket < lastPercent + 20 &&
+            now - lastAt < 1000
+          )
+        )
+      ) {
+        return
+      }
+
+      lastPercent =
+        Math.max(
+          lastPercent,
+          bucket
+        )
+      lastAt = now
+
+      text =
+        `⬇️ Mengunduh *${label}*...
+
+` +
+        `${progressBar(bucket)} *${bucket}%*
+` +
+        `${humanBytes(state.downloadedBytes)} / ${humanBytes(state.totalBytes)}`
+    } else {
+      if (
+        now - lastAt < 2500
+      ) {
+        return
+      }
+
+      lastAt = now
+      text =
+        `⬇️ Mengunduh *${label}*...
+
+` +
+        `📦 ${humanBytes(state.downloadedBytes)} terunduh`
+    }
+
+    queue =
+      queue.then(
+        async () => {
+          const ok =
+            await updateTikTokRichStatus(
+              rich,
+              text
+            )
+
+          if (!ok) {
+            active = false
+          }
+        }
+      )
+  }
+
+  report.flush =
+    async () => {
+      try {
+        await queue
+      } catch {}
+    }
+
+  return report
 }
 
 function cookiesFromResponse(response) {
@@ -1699,6 +1957,23 @@ function selectTikTokDownloads(
     }
   }
 
+  // Keep both video actions usable even when the provider exposes
+  // only one direct MP4 source. "Video" controls delivery inline,
+  // while "HD" keeps the original file as a document. When a real
+  // HD source exists, it is still preferred for the HD action.
+  let normalFallback = false
+  let hdFallback = false
+
+  if (!normal && hd) {
+    normal = hd
+    normalFallback = true
+  }
+
+  if (!hd && normal) {
+    hd = normal
+    hdFallback = true
+  }
+
   return {
     normal:
       normal
@@ -1707,7 +1982,9 @@ function selectTikTokDownloads(
               normal.url,
             label:
               normal.text ||
-              'video'
+              'video',
+            fallback:
+              normalFallback
           }
         : null,
 
@@ -1718,7 +1995,9 @@ function selectTikTokDownloads(
               hd.url,
             label:
               hd.text ||
-              'hd'
+              'hd',
+            fallback:
+              hdFallback
           }
         : null,
 
@@ -1930,7 +2209,10 @@ async function fetchTikTok(url) {
 }
 
 async function downloadTikTokMedia(
-  url
+  url,
+  {
+    onProgress = null
+  } = {}
 ) {
   const controller =
     new AbortController()
@@ -1991,29 +2273,14 @@ async function downloadTikTokMedia(
         )
       )
 
-    if (
+    const totalBytes =
       Number.isFinite(declared) &&
-      declared >
-        MAX_VIDEO_BYTES
-    ) {
-      throw new Error(
-        'VIDEO_TOO_LARGE'
-      )
-    }
-
-    const buffer =
-      Buffer.from(
-        await response.arrayBuffer()
-      )
-
-    if (!buffer.length) {
-      throw new Error(
-        'EMPTY_VIDEO'
-      )
-    }
+      declared > 0
+        ? declared
+        : 0
 
     if (
-      buffer.length >
+      totalBytes >
       MAX_VIDEO_BYTES
     ) {
       throw new Error(
@@ -2021,11 +2288,135 @@ async function downloadTikTokMedia(
       )
     }
 
+    const reader =
+      response.body?.getReader?.()
+
+    if (!reader) {
+      const buffer =
+        Buffer.from(
+          await response.arrayBuffer()
+        )
+
+      if (!buffer.length) {
+        throw new Error(
+          'EMPTY_VIDEO'
+        )
+      }
+
+      if (
+        buffer.length >
+        MAX_VIDEO_BYTES
+      ) {
+        throw new Error(
+          'VIDEO_TOO_LARGE'
+        )
+      }
+
+      try {
+        onProgress?.({
+          downloadedBytes:
+            buffer.length,
+          totalBytes:
+            totalBytes || buffer.length,
+          percent:
+            100
+        })
+      } catch {}
+
+      return {
+        buffer,
+        contentType,
+        size:
+          buffer.length
+      }
+    }
+
+    const chunks = []
+    let downloadedBytes = 0
+
+    while (true) {
+      const {
+        done,
+        value
+      } =
+        await reader.read()
+
+      if (done) {
+        break
+      }
+
+      if (!value?.byteLength) {
+        continue
+      }
+
+      downloadedBytes +=
+        value.byteLength
+
+      if (
+        downloadedBytes >
+        MAX_VIDEO_BYTES
+      ) {
+        try {
+          await reader.cancel()
+        } catch {}
+
+        throw new Error(
+          'VIDEO_TOO_LARGE'
+        )
+      }
+
+      chunks.push(
+        Buffer.from(value)
+      )
+
+      const percent =
+        totalBytes > 0
+          ? Math.min(
+              100,
+              Math.floor(
+                downloadedBytes /
+                totalBytes *
+                100
+              )
+            )
+          : null
+
+      try {
+        onProgress?.({
+          downloadedBytes,
+          totalBytes,
+          percent
+        })
+      } catch {}
+    }
+
+    if (!downloadedBytes) {
+      throw new Error(
+        'EMPTY_VIDEO'
+      )
+    }
+
+    const buffer =
+      Buffer.concat(
+        chunks,
+        downloadedBytes
+      )
+
+    try {
+      onProgress?.({
+        downloadedBytes,
+        totalBytes:
+          totalBytes || downloadedBytes,
+        percent:
+          100
+      })
+    } catch {}
+
     return {
       buffer,
       contentType,
       size:
-        buffer.length
+        downloadedBytes
     }
   } catch (error) {
     if (
@@ -2161,6 +2552,16 @@ function makePanelBody(
     )
 
   if (
+    hasNormal &&
+    hasHd &&
+    result.downloads?.normal?.url ===
+      result.downloads?.hd?.url
+  ) {
+    lines.push(
+      '🎬 *Video tersedia.*',
+      'Pilih *Video* untuk kirim inline atau *Video HD* untuk mempertahankan file sumber sebagai dokumen.'
+    )
+  } else if (
     hasNormal &&
     hasHd
   ) {
@@ -2389,30 +2790,46 @@ async function deliverTikTokChoice({
     lockKey
   )
 
-  try {
-    const label =
-      action === 'hd'
-        ? 'Video HD'
-        : action === 'audio'
-          ? 'MP3'
-          : 'Video'
+  const label =
+    action === 'hd'
+      ? 'Video HD'
+      : action === 'audio'
+        ? 'MP3'
+        : 'Video'
 
-    await sock.sendMessage(
-      jid,
-      {
-        text:
-          `✦ *NEXA • TIKTOK*\n\n` +
-          `⏳ Menyiapkan *${label}*...`
-      },
-      {
-        quoted: msg
-      }
-    )
+  let rich = null
+
+  try {
+    rich =
+      await startTikTokRichStatus({
+        sock,
+        msg,
+        jid,
+        label
+      })
+
+    const progressUpdate =
+      createTikTokProgressUpdater({
+        rich,
+        label
+      })
 
     const downloaded =
       await downloadTikTokMedia(
-        selected.url
+        selected.url,
+        {
+          onProgress:
+            progressUpdate
+        }
       )
+
+    await progressUpdate.flush()
+
+    await updateTikTokRichStatus(
+      rich,
+      `✅ Download selesai • *${humanBytes(downloaded.size)}*\n` +
+      '📤 Mengirim ke WhatsApp...'
+    )
 
     if (action === 'hd') {
       await sock.sendMessage(
@@ -2429,7 +2846,11 @@ async function deliverTikTokChoice({
             ),
           caption:
             `${makeCaption(session.result)}\n\n` +
-            `✨ *Video HD* • dikirim sebagai dokumen MP4.`
+            (
+              selected.fallback
+                ? '📄 *Video original* • source HD terpisah tidak tersedia, dikirim sebagai dokumen MP4.'
+                : '✨ *Video HD* • dikirim sebagai dokumen MP4.'
+            )
         },
         {
           quoted: msg,
@@ -2476,12 +2897,25 @@ async function deliverTikTokChoice({
       )
     }
 
+    await updateTikTokRichStatus(
+      rich,
+      `✅ *${label} berhasil dikirim*\n` +
+      `📦 ${humanBytes(downloaded.size)}`
+    )
+
     console.log(
       '✅ TikTok via MusicalDown:',
       action,
       session.result.author ||
       'unknown'
     )
+  } catch (error) {
+    await updateTikTokRichStatus(
+      rich,
+      `❌ *${label} gagal diproses*`
+    )
+
+    throw error
   } finally {
     tiktokDownloadLocks.delete(
       lockKey
