@@ -8,7 +8,7 @@ export default {
 
   category: 'BOT',
   description:
-    'Mengatur anti-spam global',
+    'Mengatur anti-spam untuk bot ini',
   usage:
     '.antispam on/off',
 
@@ -63,8 +63,8 @@ export default {
       {
         text:
           enabled
-            ? '🛡️ Anti-spam global aktif.'
-            : '🔓 Anti-spam global dimatikan.'
+            ? '🛡️ Anti-spam bot ini aktif.'
+            : '🔓 Anti-spam bot ini dimatikan.'
       },
       {
         quoted: msg

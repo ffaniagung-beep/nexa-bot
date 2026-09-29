@@ -11,7 +11,7 @@ export default {
 
   category: 'BOT',
   description:
-    'Menampilkan pengaturan global NEXA-BOT',
+    'Menampilkan pengaturan bot NEXA yang sedang dipakai',
   usage:
     '.botsettings',
 
@@ -29,13 +29,17 @@ export default {
     const text = `
 ╭─ ◈ *NEXA BOT SETTINGS*
 │
+│ Prefix    : ${config.prefix}
 │ Anti-Spam : ${db.antiSpam ? 'ON' : 'OFF'}
+│ Anti-Link : ${db.antiLink ? 'ON' : 'OFF'}
 │ RejectCall: ${db.rejectCall ? 'ON' : 'OFF'}
 │ Call Mode : ${db.callMode}
 │
 ╰────────────
 
+◈ ${config.prefix}setprefix <prefix>
 ◈ ${config.prefix}antispam on/off
+◈ ${config.prefix}antilink on/off
 ◈ ${config.prefix}rejectcall on/off
 ◈ ${config.prefix}callmode warn/block
 ◈ ${config.prefix}ban @user

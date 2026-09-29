@@ -683,18 +683,14 @@ async function applyCommandSafetyDelay(
 // ANTI-SPAM
 // =====================================
 
-// ANTI-SPAM V2 CANONICAL
+// ANTI-SPAM V3 CANONICAL
 // =====================================
 //
-// Global = fitur berlaku di seluruh NEXA.
-// State tetap PER USER, bukan satu timer bersama.
-//
-// Rule:
-// - command pertama: lolos
-// - command kedua <8 detik: block
-// - cooldown: 15 detik
-// - owner: immune
-// - PN/LID: disatukan sebisa mungkin
+// State tetap PER USER dan PER PROCESS BOT.
+// Rule mengikuti bot_settings:
+// - maksimal N command dalam window
+// - command berikutnya masuk cooldown
+// - owner immune
 // =====================================
 
 async function checkAntiSpam({
@@ -720,8 +716,6 @@ async function checkAntiSpam({
 
   let sender = null
 
-  // Gunakan resolver profile yang sama
-  // dengan sistem player PN/LID.
   try {
     sender =
       await resolveProfileJid(
@@ -765,30 +759,43 @@ async function checkAntiSpam({
   const now =
     Date.now()
 
+  const max =
+    Math.max(
+      1,
+      Math.trunc(
+        Number(
+          db.spam?.max
+        ) || 5
+      )
+    )
+
   const windowMs =
-    Number(
-      db.spam?.windowMs
-    ) || 8000
+    Math.max(
+      1000,
+      Number(
+        db.spam?.windowMs
+      ) || 8000
+    )
 
   const cooldownMs =
-    Number(
-      db.spam?.cooldownMs
-    ) || 15000
+    Math.max(
+      1000,
+      Number(
+        db.spam?.cooldownMs
+      ) || 15000
+    )
 
   let state =
     spamMemory.get(key)
 
   if (!state) {
     state = {
-      lastCommandAt: 0,
+      windowStartedAt: 0,
+      count: 0,
       cooldownUntil: 0,
       lastNotice: 0
     }
   }
-
-  // =================================
-  // MASIH COOLDOWN
-  // =================================
 
   if (
     state.cooldownUntil >
@@ -811,37 +818,25 @@ async function checkAntiSpam({
 
     return {
       blocked: true,
-
       cooldown:
         state.cooldownUntil -
         now,
-
       notify:
         shouldNotify
     }
   }
 
-  // Cooldown lama sudah selesai.
   if (
-    state.cooldownUntil > 0
-  ) {
-    state.cooldownUntil = 0
-    state.lastNotice = 0
-    state.lastCommandAt = 0
-  }
-
-  // =================================
-  // COMMAND PERTAMA / SUDAH >8 DETIK
-  // =================================
-
-  if (
-    !state.lastCommandAt ||
+    !state.windowStartedAt ||
     now -
-      state.lastCommandAt >=
+      state.windowStartedAt >=
       windowMs
   ) {
-    state.lastCommandAt =
+    state.windowStartedAt =
       now
+    state.count = 1
+    state.cooldownUntil = 0
+    state.lastNotice = 0
 
     spamMemory.set(
       key,
@@ -853,15 +848,30 @@ async function checkAntiSpam({
     }
   }
 
-  // =================================
-  // COMMAND KEDUA <8 DETIK
-  // =================================
+  state.count =
+    Math.max(
+      0,
+      Number(
+        state.count
+      ) || 0
+    ) + 1
+
+  if (state.count <= max) {
+    spamMemory.set(
+      key,
+      state
+    )
+
+    return {
+      blocked: false
+    }
+  }
 
   state.cooldownUntil =
     now +
     cooldownMs
-
-  state.lastCommandAt = 0
+  state.windowStartedAt = 0
+  state.count = 0
   state.lastNotice = now
 
   spamMemory.set(
@@ -871,10 +881,8 @@ async function checkAntiSpam({
 
   return {
     blocked: true,
-
     cooldown:
       cooldownMs,
-
     notify: true
   }
 }
@@ -912,10 +920,10 @@ async function handleAntiLink({
     return false
   }
 
-  const data =
-    getGroupConfig(jid)
+  const botSettings =
+    getBotDB()
 
-  if (!data.antiLink) {
+  if (!botSettings.antiLink) {
     return false
   }
 

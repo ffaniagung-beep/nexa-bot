@@ -1,19 +1,18 @@
 import {
-  getGroupConfig,
-  updateGroupConfig
-} from '../lib/groupdb.js'
+  getBotDB,
+  updateBotDB
+} from '../lib/botdb.js'
 
 export default {
   name: 'antilink',
 
-  category: 'GROUP',
+  category: 'BOT',
   description:
-    'Memblokir link invite grup WhatsApp',
+    'Mengatur proteksi link grup untuk bot ini',
   usage:
     '.antilink on/off',
 
-  groupOnly: true,
-  adminOnly: true,
+  ownerOnly: true,
 
   async run({
     sock,
@@ -26,19 +25,20 @@ export default {
       args[0]?.toLowerCase()
 
     const data =
-      getGroupConfig(jid)
+      getBotDB()
 
     if (!action) {
       await sock.sendMessage(
         jid,
         {
           text:
-            `╭─ *Anti-Link*\n` +
+            `╭─ *Anti-Link Bot*\n` +
             `│ Status: ${
               data.antiLink
                 ? 'ON ✅'
                 : 'OFF ❌'
             }\n` +
+            `│ Berlaku: semua grup yang dilayani bot ini\n` +
             `│ Max Warn: 3\n` +
             `╰────────────\n\n` +
             `${config.prefix}antilink on\n` +
@@ -75,20 +75,17 @@ export default {
     const enabled =
       action === 'on'
 
-    updateGroupConfig(
-      jid,
-      {
-        antiLink: enabled
-      }
-    )
+    updateBotDB({
+      antiLink: enabled
+    })
 
     await sock.sendMessage(
       jid,
       {
         text:
           enabled
-            ? '🛡️ Anti-link diaktifkan.\nLink invite grup dari member akan dihapus.'
-            : '🔓 Anti-link dimatikan.'
+            ? '🛡️ Anti-link bot aktif. Berlaku di semua grup yang dilayani bot ini.'
+            : '🔓 Anti-link bot dimatikan.'
       },
       {
         quoted: msg
