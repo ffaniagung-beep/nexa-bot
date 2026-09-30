@@ -1,0 +1,16 @@
+NEXA Chess V11 — In-WhatsApp Trusted-Origin Fix
+
+Base: V9 (V10 hosted-browser direction is intentionally NOT used).
+
+Changes:
+- Multiplayer stays inside the WhatsApp HTML mini-app, same board interaction as solo.
+- Catur HTML primitive now carries `url: https://<your-vercel-domain>/` so Android WhatsApp can give the WebView a real HTTPS base origin.
+- Keeps Vercel /api/ws + Supabase backend from V9.
+- Adds visible WebView origin to WebSocket errors for one-shot diagnosis.
+- Adds "SALIN ID ROOM" button with Clipboard API + execCommand fallback.
+- No new npm dependency and no Supabase/Vercel env changes.
+
+Expected after sending a NEW .catur bubble:
+- Multiplayer opens in the WhatsApp bubble.
+- WebSocket should connect to wss://<vercel-domain>/api/ws.
+- If it still fails, the error line will include the actual WebView origin. A successful trusted-origin render should show an https://... origin instead of null/about:.

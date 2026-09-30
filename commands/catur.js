@@ -1,17 +1,51 @@
 import fs from 'fs'
 import path from 'path'
 
-import { MB, sendHtmlApp } from '@rexxhayanasi/elaina-baileys'
+import { MB } from '@rexxhayanasi/elaina-baileys'
 
 import { getUser } from '../lib/userdb.js'
 import { getProfileJid, resolveProfileJid } from '../lib/profile.js'
 import {
-  createChessHostedLaunchUrl,
+  createChessMenuSession,
   getChessRealtimeConfig,
   chessMultiplayerConfigured
 } from '../lib/chessRealtime.js'
 
 const GAME_FILE = path.resolve('./arcade/chess.html')
+
+async function sendTrustedChessApp(sock, jid, html, { origin, title, height = 610 } = {}) {
+  const base = String(origin || '').trim()
+  if (!base) throw new Error('CHESS_TRUSTED_ORIGIN_MISSING')
+
+  let parsed
+  try {
+    parsed = new URL(base)
+  } catch {
+    throw new Error('CHESS_TRUSTED_ORIGIN_INVALID')
+  }
+
+  if (parsed.protocol !== 'https:') {
+    throw new Error('CHESS_TRUSTED_ORIGIN_REQUIRES_HTTPS')
+  }
+
+  const trustedSources = ['nexa.local', parsed.hostname].filter(Boolean)
+  const section = MB.htmlSection(html, { trustedSources, height })
+  const primitive = section?.view_model?.primitive
+
+  if (!primitive || typeof primitive !== 'object') {
+    throw new Error('CHESS_HTML_PRIMITIVE_NOT_FOUND')
+  }
+
+  // Elaina 1.4.2 normally sends HTML mini-apps on an opaque about:blank
+  // origin. WhatsApp Android also understands a `url` field on the HTML
+  // primitive. Supplying our HTTPS Vercel origin gives the embedded WebView
+  // a real base origin while keeping the game inside the WhatsApp bubble.
+  primitive.url = `${parsed.origin}/`
+
+  const rich = new MB.AIRich(sock).setTitle(title || '⚡ NEXA ARCADE')
+  rich.addSection(section, { id: 'nexa-chess-app' })
+  return rich.send(jid)
+}
 
 function injectConfig(html, config) {
   return String(html).replace(
@@ -80,35 +114,34 @@ export default {
     let multiplayerReady =
       !isGroup && registered && chessMultiplayerConfigured()
 
-    let hostedLaunchUrl = ''
+    let session = null
     let multiplayerIssue = null
 
     if (multiplayerReady) {
       try {
-        hostedLaunchUrl = createChessHostedLaunchUrl({
+        session = await createChessMenuSession({
+          chatJid: jid,
           playerJid,
           registrationVerified: registered
         })
       } catch (err) {
         multiplayerReady = false
-        multiplayerIssue = String(err?.message || err || 'CHESS_LAUNCH_ERROR')
-        console.error('♟️ NEXA Chess hosted multiplayer launch:', err)
+        multiplayerIssue = String(err?.message || err || 'CHESS_SESSION_ERROR')
+        console.error('♟️ NEXA Chess Supabase/Vercel session:', err)
       }
     }
 
     const html = injectConfig(
       fs.readFileSync(GAME_FILE, 'utf8'),
       {
-        transport: 'hosted-multiplayer-v10',
-        gatewayWsUrl: null,
+        transport: 'vercel-ws-supabase-v2',
+        gatewayWsUrl: realtime.gatewayWsUrl,
         vercelUrl: realtime.vercelUrl,
-        accessToken: null,
-        sessionId: null,
-        sessionExpiresAt: null,
-        playerId: null,
-        playerName: String(user?.name || 'NEXA Player').slice(0, 48),
-        hostedLaunchUrl,
-        hostedMode: false,
+        accessToken: session?.accessToken || null,
+        sessionId: session?.sessionId || null,
+        sessionExpiresAt: session?.expiresAt || null,
+        playerId: session?.playerId || null,
+        playerName: session?.playerName || String(user?.name || 'NEXA Player').slice(0, 48),
         multiplayerReady,
         isGroup,
         registered,
@@ -117,29 +150,11 @@ export default {
     )
 
     try {
-      const trustedSources = ['nexa.local']
-      try {
-        const host = realtime.vercelUrl ? new URL(realtime.vercelUrl).hostname : ''
-        if (host && !trustedSources.includes(host)) trustedSources.push(host)
-      } catch {}
-
-      await sendHtmlApp(sock, jid, html, {
+      await sendTrustedChessApp(sock, jid, html, {
+        origin: realtime.vercelUrl,
         title: '⚡ NEXA ARCADE',
-        label: '♟️ NEXA CHESS • Android Only',
-        trustedSources,
         height: 610
       })
-
-
-      if (hostedLaunchUrl && !isGroup && registered) {
-        const multiplayerButton = new MB.Button(sock)
-          .setTitle('♟️ NEXA CHESS MULTIPLAYER')
-          .setBody('Arena multiplayer dibuka sebagai halaman aman Vercel supaya realtime tidak bergantung pada WebView offline di bubble WhatsApp.')
-          .setFooter('Room ID • real-time • private chat')
-          .addUrl('♟️ Buka Multiplayer', hostedLaunchUrl)
-
-        await multiplayerButton.send(jid)
-      }
     } catch (err) {
       console.error('♟️ NEXA Chess:', err)
 

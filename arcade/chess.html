@@ -389,6 +389,20 @@ body.menu-open .bottom{
   box-shadow:0 18px 50px #000c;
 }
 .promo-title{font-size:16px;font-weight:900}
+
+.room-copy-btn{
+  width:100%;
+  margin-top:10px;
+  border:1px solid rgba(83,199,255,.35);
+  border-radius:12px;
+  padding:10px 12px;
+  background:rgba(30,116,170,.16);
+  color:#dff6ff;
+  font-weight:800;
+  letter-spacing:.4px;
+}
+.room-copy-btn:active{transform:scale(.985)}
+
 .promo-copy{margin-top:6px;color:#8391aa;font-size:10px}
 .promo-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px}
 .promo-piece{
@@ -460,7 +474,7 @@ body.menu-open .bottom{
       <div class="menu-title">⏳ MENUNGGU PLAYER</div>
       <div class="menu-copy">Bagikan ID ini ke teman. Room hanya menerima satu lawan.</div>
       <div class="room-code" id="roomCode">--------</div>
-      <button class="menu-back" id="copyRoom" style="margin-top:10px">📋 Salin ID Room</button>
+      <button class="room-copy-btn" id="copyRoom">📋 SALIN ID ROOM</button>
       <div class="room-hint">Player kedua buka <b>.catur</b> di private NEXA → Main bareng → masukkan ID room ini.</div>
       <button class="menu-back" id="cancelRoom">Batalkan room</button>
     </div>
@@ -1950,6 +1964,37 @@ function socketLabel(){
   }catch{return'gateway Vercel tidak valid'}
 }
 
+function webviewOriginLabel(){
+  try{return `${location.origin||'null'} • ${location.protocol||'?'}`}catch{return'origin tidak terbaca'}
+}
+
+async function copyRoomId(){
+  const value=String(roomId||roomCode?.textContent||'').trim()
+  if(!value||value==='--------')return
+  let ok=false
+  try{
+    if(navigator.clipboard&&window.isSecureContext){
+      await navigator.clipboard.writeText(value)
+      ok=true
+    }
+  }catch{}
+  if(!ok){
+    try{
+      const el=document.createElement('textarea')
+      el.value=value
+      el.setAttribute('readonly','')
+      el.style.position='fixed'
+      el.style.opacity='0'
+      document.body.appendChild(el)
+      el.select()
+      el.setSelectionRange(0,value.length)
+      ok=!!document.execCommand('copy')
+      el.remove()
+    }catch{}
+  }
+  menuStatus.textContent=ok?`✅ Room ID ${value} disalin.`:`Room ID: ${value} • tahan ID untuk salin.`
+}
+
 class NexaRealtimeChannel{
   constructor(topic,onBroadcast,onReady,onState){
     this.topic=topic
@@ -2118,12 +2163,6 @@ function configureMultiplayerButton(){
     return
   }
 
-  if(NEXA_CONFIG.hostedLaunchUrl&&!NEXA_CONFIG.hostedMode){
-    multiMode.disabled=false
-    multiModeInfo.textContent='Buka arena multiplayer online via Vercel.'
-    return
-  }
-
   if(!NEXA_CONFIG.multiplayerReady||!GATEWAY_URL||!NEXA_CONFIG.accessToken||!NEXA_CONFIG.sessionId){
     multiMode.disabled=true
     multiModeInfo.textContent=NEXA_CONFIG.multiplayerIssue?'Supabase/Vercel config error.':'Server multiplayer belum aktif.'
@@ -2164,11 +2203,6 @@ function startSolo(){
 
 function showMultiplayerMenu(){
   if(multiMode.disabled)return
-  if(NEXA_CONFIG.hostedLaunchUrl&&!NEXA_CONFIG.hostedMode){
-    menuStatus.textContent='Membuka arena multiplayer... Jika tidak terbuka, pakai tombol “Buka Multiplayer” di chat.'
-    try{window.location.href=String(NEXA_CONFIG.hostedLaunchUrl)}catch{}
-    return
-  }
   setMenuPanel('room')
   roomInput.value=''
   menuStatus.textContent='Buat room atau masukkan Room ID.'
@@ -2206,8 +2240,9 @@ function onRealtimeState(state,detail){
     return
   }
   if(state==='error'){
-    if(currentMode==='multi')statusEl.textContent=`❌ WebSocket Vercel error • ${socketLabel()}`
-    else menuStatus.textContent=`❌ WebSocket Vercel error • ${socketLabel()}`
+    const diag=`${socketLabel()} • origin ${webviewOriginLabel()}`
+    if(currentMode==='multi')statusEl.textContent=`❌ WebSocket Vercel error • ${diag}`
+    else menuStatus.textContent=`❌ WebSocket Vercel error • ${diag}`
     return
   }
   if(state==='closed'){
@@ -2392,6 +2427,8 @@ addRoom.addEventListener('click',()=>{
   openRoomChannel('host',randomText(8))
 })
 
+copyRoom.addEventListener('click',copyRoomId)
+
 roomInput.addEventListener('input',normalizeRoomInput)
 roomInput.addEventListener('keydown',e=>{
   if(e.key==='Enter')joinRoom.click()
@@ -2405,32 +2442,6 @@ joinRoom.addEventListener('click',()=>{
     return
   }
   openRoomChannel('guest',id)
-})
-
-copyRoom.addEventListener('click',async()=>{
-  const value=String(roomId||roomCode.textContent||'').trim()
-  if(!value)return
-  let ok=false
-  try{
-    if(navigator.clipboard&&window.isSecureContext){
-      await navigator.clipboard.writeText(value)
-      ok=true
-    }
-  }catch{}
-  if(!ok){
-    try{
-      const ta=document.createElement('textarea')
-      ta.value=value
-      ta.setAttribute('readonly','')
-      ta.style.position='fixed'
-      ta.style.opacity='0'
-      document.body.appendChild(ta)
-      ta.select()
-      ok=document.execCommand('copy')
-      ta.remove()
-    }catch{}
-  }
-  menuStatus.textContent=ok?'✅ ID Room disalin: '+value:'ID Room: '+value+' • tekan lama untuk salin.'
 })
 
 roomBack.addEventListener('click',()=>{
