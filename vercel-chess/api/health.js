@@ -12,8 +12,9 @@ export default function handler(_req, res) {
   res.end(JSON.stringify({
     ok: true,
     service: 'nexa-chess-vercel',
-    transport: 'vercel-websocket-gateway+supabase-realtime',
+    transport: 'hosted-webview+vercel-websocket-gateway+supabase-realtime',
     websocketPath: '/api/ws',
+    playPath: '/play.html',
     authMode: 'supabase-anonymous-auth',
     ...values
   }))

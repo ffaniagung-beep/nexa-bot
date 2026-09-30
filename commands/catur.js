@@ -1,12 +1,12 @@
 import fs from 'fs'
 import path from 'path'
 
-import { sendHtmlApp } from '@rexxhayanasi/elaina-baileys'
+import { MB, sendHtmlApp } from '@rexxhayanasi/elaina-baileys'
 
 import { getUser } from '../lib/userdb.js'
 import { getProfileJid, resolveProfileJid } from '../lib/profile.js'
 import {
-  createChessMenuSession,
+  createChessHostedLaunchUrl,
   getChessRealtimeConfig,
   chessMultiplayerConfigured
 } from '../lib/chessRealtime.js'
@@ -80,34 +80,35 @@ export default {
     let multiplayerReady =
       !isGroup && registered && chessMultiplayerConfigured()
 
-    let session = null
+    let hostedLaunchUrl = ''
     let multiplayerIssue = null
 
     if (multiplayerReady) {
       try {
-        session = await createChessMenuSession({
-          chatJid: jid,
+        hostedLaunchUrl = createChessHostedLaunchUrl({
           playerJid,
           registrationVerified: registered
         })
       } catch (err) {
         multiplayerReady = false
-        multiplayerIssue = String(err?.message || err || 'CHESS_SESSION_ERROR')
-        console.error('♟️ NEXA Chess Supabase/Vercel session:', err)
+        multiplayerIssue = String(err?.message || err || 'CHESS_LAUNCH_ERROR')
+        console.error('♟️ NEXA Chess hosted multiplayer launch:', err)
       }
     }
 
     const html = injectConfig(
       fs.readFileSync(GAME_FILE, 'utf8'),
       {
-        transport: 'vercel-ws-supabase-v2',
-        gatewayWsUrl: realtime.gatewayWsUrl,
+        transport: 'hosted-multiplayer-v10',
+        gatewayWsUrl: null,
         vercelUrl: realtime.vercelUrl,
-        accessToken: session?.accessToken || null,
-        sessionId: session?.sessionId || null,
-        sessionExpiresAt: session?.expiresAt || null,
-        playerId: session?.playerId || null,
-        playerName: session?.playerName || String(user?.name || 'NEXA Player').slice(0, 48),
+        accessToken: null,
+        sessionId: null,
+        sessionExpiresAt: null,
+        playerId: null,
+        playerName: String(user?.name || 'NEXA Player').slice(0, 48),
+        hostedLaunchUrl,
+        hostedMode: false,
         multiplayerReady,
         isGroup,
         registered,
@@ -128,6 +129,17 @@ export default {
         trustedSources,
         height: 610
       })
+
+
+      if (hostedLaunchUrl && !isGroup && registered) {
+        const multiplayerButton = new MB.Button(sock)
+          .setTitle('♟️ NEXA CHESS MULTIPLAYER')
+          .setBody('Arena multiplayer dibuka sebagai halaman aman Vercel supaya realtime tidak bergantung pada WebView offline di bubble WhatsApp.')
+          .setFooter('Room ID • real-time • private chat')
+          .addUrl('♟️ Buka Multiplayer', hostedLaunchUrl)
+
+        await multiplayerButton.send(jid)
+      }
     } catch (err) {
       console.error('♟️ NEXA Chess:', err)
 

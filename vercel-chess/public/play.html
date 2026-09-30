@@ -542,7 +542,27 @@ body.menu-open .bottom{
 
 <script>
 (()=>{
-const NEXA_CONFIG=__NEXA_CHESS_CONFIG__
+function decodeHostedConfig(){
+  try{
+    const raw=String(location.hash||'').replace(/^#/,'')
+    if(!raw)throw new Error('Launch session tidak ditemukan')
+    const pad='='.repeat((4-raw.length%4)%4)
+    const b64=(raw+pad).replace(/-/g,'+').replace(/_/g,'/')
+    const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0))
+    const cfg=JSON.parse(new TextDecoder().decode(bytes))
+    try{history.replaceState(null,'',location.pathname)}catch{}
+    return cfg
+  }catch(err){
+    return {
+      hostedMode:true,
+      multiplayerReady:false,
+      registered:true,
+      isGroup:false,
+      multiplayerIssue:String(err?.message||err||'Launch session rusak')
+    }
+  }
+}
+const NEXA_CONFIG=decodeHostedConfig()
 const canvas=document.getElementById('board')
 const ctx=canvas.getContext('2d')
 
@@ -2517,7 +2537,16 @@ function animateSelection(){
 }
 
 render()
-showMenu()
+if(NEXA_CONFIG.hostedMode){
+  showMenu('Buat room atau masukkan Room ID.')
+  if(!multiMode.disabled){
+    setMenuPanel('room')
+    roomInput.value=''
+    menuStatus.textContent='Buat room atau masukkan Room ID.'
+  }
+}else{
+  showMenu()
+}
 requestAnimationFrame(
   animateSelection
 )

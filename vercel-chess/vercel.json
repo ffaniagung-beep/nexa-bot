@@ -7,6 +7,9 @@
     "api/session.js": {
       "maxDuration": 10
     },
+    "api/play.js": {
+      "maxDuration": 10
+    },
     "api/health.js": {
       "maxDuration": 10
     }
