@@ -7,7 +7,6 @@ import { getUser } from '../lib/userdb.js'
 import { getProfileJid, resolveProfileJid } from '../lib/profile.js'
 import {
   createChessMenuSession,
-  getChessRealtimeConfig,
   chessMultiplayerConfigured
 } from '../lib/chessRealtime.js'
 
@@ -20,20 +19,11 @@ function injectConfig(html, config) {
   )
 }
 
-function trustedSourcesFromWs(wsUrl) {
-  try {
-    const url = new URL(String(wsUrl || ''))
-    return url.hostname ? [url.hostname] : ['nexa.local']
-  } catch {
-    return ['nexa.local']
-  }
-}
-
 export default {
   name: 'catur',
   aliases: ['chess'],
   category: 'MINI GAME',
-  description: 'Main catur vs NEXA AI atau player lain',
+  description: 'Main catur vs NEXA AI atau player lain via WebRTC',
   usage: '.catur',
 
   async run({ sock, msg, jid, isOwner = false }) {
@@ -85,9 +75,7 @@ export default {
     user = user || getUser(playerJid)
 
     const isGroup = String(jid).endsWith('@g.us')
-    const realtime = getChessRealtimeConfig()
-    let multiplayerReady =
-      !isGroup && registered && chessMultiplayerConfigured()
+    let multiplayerReady = !isGroup && registered && chessMultiplayerConfigured()
 
     let session = null
     let multiplayerIssue = null
@@ -101,22 +89,24 @@ export default {
         })
       } catch (err) {
         multiplayerReady = false
-        multiplayerIssue = String(err?.message || err || 'CHESS_SESSION_ERROR')
-        console.error('♟️ NEXA Chess Cloudflare session:', err)
+        multiplayerIssue = String(err?.message || err || 'CHESS_RTC_SESSION_ERROR')
+        console.error('♟️ NEXA Chess WebRTC session:', err)
       }
     }
 
     const html = injectConfig(
       fs.readFileSync(GAME_FILE, 'utf8'),
       {
-        transport: 'cloudflare-durable-object-v6',
-        wsUrl: realtime.wsUrl,
-        menuToken: session?.menuToken || null,
-        sessionExpiresAt: session?.expiresAt || null,
+        transport: 'webrtc-p2p-v1',
         playerId: session?.playerId || null,
         playerName:
           session?.playerName ||
           String(user?.name || 'NEXA Player').slice(0, 48),
+        iceServers: session?.iceServers || [
+          { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }
+        ],
+        turnConfigured: Boolean(session?.turnConfigured),
+        turnIssue: session?.turnIssue || null,
         multiplayerReady,
         isGroup,
         registered,
@@ -125,17 +115,12 @@ export default {
     )
 
     try {
-      await sendHtmlApp(
-        sock,
-        jid,
-        html,
-        {
-          title: '⚡ NEXA ARCADE',
-          label: '♟️ NEXA CHESS • Android Only',
-          trustedSources: trustedSourcesFromWs(realtime.wsUrl),
-          height: 610
-        }
-      )
+      await sendHtmlApp(sock, jid, html, {
+        title: '⚡ NEXA ARCADE',
+        label: '♟️ NEXA CHESS • Android Only',
+        trustedSources: [],
+        height: 690
+      })
     } catch (err) {
       console.error('♟️ NEXA Chess:', err)
 

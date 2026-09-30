@@ -1,0 +1,37 @@
+# NEXA Chess WebRTC P2P
+
+Transport multiplayer diubah dari WebSocket menjadi WebRTC DataChannel.
+Alasan: runtime mini-app WhatsApp pada perangkat yang diuji menolak WebSocket,
+namun RTCPeerConnection + STUN berhasil mendapatkan candidate srflx.
+
+## Pairing
+
+WebView mini-app tidak punya fetch/XHR/WebSocket yang berfungsi dan AndroidBridge
+Elaina hanya menyediakan updateSize. Karena itu SDP harus dipertukarkan lewat chat WhatsApp:
+
+1. Host: Main Bareng -> Buat Room -> Salin Kode Host -> kirim ke teman.
+2. Guest: Main Bareng -> tempel Kode Host -> Join -> salin Kode Balasan -> kirim ke host.
+3. Host: tempel Kode Balasan -> Aktifkan.
+4. RTCDataChannel OPEN -> game mulai otomatis.
+
+## TURN Cloudflare (opsional tapi direkomendasikan)
+
+Di Cloudflare Realtime -> TURN buat TURN key. Simpan key ID + token hanya di VPS .env:
+
+NEXA_CF_TURN_KEY_ID=...
+NEXA_CF_TURN_KEY_TOKEN=...
+NEXA_CHESS_TURN_TTL=7200
+
+Optional STUN override:
+NEXA_CHESS_STUN_URLS=stun:stun.cloudflare.com:3478,stun:stun.l.google.com:19302
+
+Bot akan meminta short-lived ICE credentials dari Cloudflare saat .catur dibuka.
+TURN token jangka panjang tidak pernah ditanam langsung ke HTML; yang masuk ke mini-app hanya
+credential pendek dari Cloudflare.
+
+Env lama NEXA_CHESS_WS_URL / NEXA_CHESS_SECRET tidak dipakai transport WebRTC ini.
+
+## Game selesai
+
+Win/lose/draw/resign membuka popup hasil. Popup hanya punya tombol BACK MENU dan tidak otomatis
+menutup game setelah timeout.

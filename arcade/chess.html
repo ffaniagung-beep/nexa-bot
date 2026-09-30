@@ -418,6 +418,29 @@ body.menu-open .bottom{
   border:1px solid #ffffff12;background:#ffffff07;color:#9eabc0;font-weight:800;
 }
 
+
+.signal-box{margin-top:10px}
+.signal-label{display:block;margin:8px 0 5px;color:#91a2bb;font-size:10px;font-weight:800;letter-spacing:.5px}
+.signal-text{
+  width:100%;min-height:74px;resize:none;padding:10px 11px;border-radius:12px;
+  border:1px solid #ffffff18;background:#030813;color:#d9efff;font-size:10px;
+  line-height:1.35;outline:none;word-break:break-all
+}
+.signal-text:focus{border-color:#48e8ff70}
+.signal-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.signal-btn{min-height:39px;border-radius:11px;border:1px solid #48e8ff40;background:#48e8ff12;color:#e8fbff;font-weight:900;font-size:10px}
+.rtc-badge{margin-top:9px;color:#7f91aa;font-size:9px;line-height:1.45}
+.result-screen{
+  position:absolute;inset:0;z-index:45;display:flex;align-items:center;justify-content:center;
+  padding:20px;background:#02050de8;backdrop-filter:blur(5px)
+}
+.result-screen.hidden{display:none}
+.result-box{width:100%;max-width:330px;padding:20px;border-radius:18px;border:1px solid #48e8ff55;background:#07101c;text-align:center;box-shadow:0 18px 50px #000c}
+.result-kicker{color:#48e8ff;font-size:10px;font-weight:900;letter-spacing:2px}
+.result-title{margin-top:8px;color:#fff;font-size:24px;line-height:1.1;font-weight:1000}
+.result-detail{margin-top:9px;color:#8f9db2;font-size:11px;line-height:1.5}
+.result-back{width:100%;margin-top:16px;min-height:44px;border:1px solid #48e8ff55;border-radius:12px;background:#48e8ff14;color:#e8fbff;font-weight:1000}
+
 </style>
 </head>
 
@@ -446,37 +469,40 @@ body.menu-open .bottom{
     </div>
 
     <div class="menu-panel hidden" id="roomPanel">
-      <div class="menu-title">👥 MAIN BARENG</div>
-      <div class="menu-copy">Buat room baru atau masukkan ID room teman.</div>
+      <div class="menu-title">👥 MAIN BARENG • WEBRTC</div>
+      <div class="menu-copy">WebSocket WA kamu diblokir, jadi pairing dilakukan lewat kode WebRTC yang dikirim lewat chat WhatsApp.</div>
 
       <button class="menu-option primary" id="addRoom">
-        <strong>➕ Add Room</strong>
-        <span>Buat ID room unik sekali pakai lalu tunggu lawan masuk.</span>
+        <strong>➕ BUAT ROOM</strong>
+        <span>Buat Kode Host. Kirim kode itu ke teman lewat WhatsApp.</span>
       </button>
 
-      <div class="room-input-row">
-        <input
-          class="room-input"
-          id="roomInput"
-          maxlength="8"
-          autocomplete="off"
-          autocapitalize="characters"
-          spellcheck="false"
-          placeholder="ROOM ID"
-        >
-        <button class="room-join" id="joinRoom">JOIN</button>
+      <div class="signal-box">
+        <label class="signal-label" for="roomInput">PUNYA KODE HOST DARI TEMAN?</label>
+        <textarea class="signal-text" id="roomInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Tempel Kode Host di sini..."></textarea>
+        <button class="room-join" id="joinRoom" style="width:100%;margin-top:8px">JOIN DENGAN KODE HOST</button>
       </div>
 
       <button class="menu-back" id="roomBack">← Kembali</button>
     </div>
 
     <div class="menu-panel hidden" id="waitingPanel">
-      <div class="menu-title">⏳ MENUNGGU PLAYER</div>
-      <div class="menu-copy">Bagikan ID ini ke teman. Room hanya menerima satu lawan.</div>
-      <div class="room-code" id="roomCode">--------</div>
-      <button class="room-copy-btn" id="copyRoom">📋 SALIN ID ROOM</button>
-      <div class="room-hint">Player kedua buka <b>.catur</b> di private NEXA → Main bareng → masukkan ID room ini.</div>
-      <button class="menu-back" id="cancelRoom">Batalkan room</button>
+      <div class="menu-title" id="waitingTitle">⏳ PAIRING WEBRTC</div>
+      <div class="menu-copy" id="waitingCopy">Tukar kode lewat chat WhatsApp. Tidak perlu keluar ke browser.</div>
+      <div class="room-code" id="roomCode">P2P</div>
+
+      <label class="signal-label" id="signalOutLabel">KODE YANG DIKIRIM KE TEMAN</label>
+      <textarea class="signal-text" id="signalOutput" readonly></textarea>
+      <button class="room-copy-btn" id="copyRoom">📋 SALIN KODE</button>
+
+      <div class="signal-box" id="answerBox">
+        <label class="signal-label" for="answerInput">HOST: TEMPEL KODE BALASAN DARI TEMAN</label>
+        <textarea class="signal-text" id="answerInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Tempel Kode Balasan di sini..."></textarea>
+        <button class="signal-btn" id="applyAnswer" style="width:100%;margin-top:8px">AKTIFKAN KODE BALASAN</button>
+      </div>
+
+      <div class="rtc-badge" id="rtcInfo">ICE: menyiapkan koneksi...</div>
+      <button class="menu-back" id="cancelRoom">Batalkan pairing</button>
     </div>
 
     <div id="menuStatus">Pilih salah satu mode.</div>
@@ -496,6 +522,15 @@ body.menu-open .bottom{
       <button class="promo-piece" data-promo="N">♞</button>
     </div>
     <button class="promo-cancel" id="promotionCancel">BATAL</button>
+  </div>
+</div>
+
+<div class="result-screen hidden" id="resultScreen">
+  <div class="result-box">
+    <div class="result-kicker">NEXA ARCADE // CHESS</div>
+    <div class="result-title" id="resultTitle">GAME SELESAI</div>
+    <div class="result-detail" id="resultDetail">Permainan selesai.</div>
+    <button class="result-back" id="resultBack">← BACK MENU</button>
   </div>
 </div>
 
@@ -581,6 +616,18 @@ const roomBack=document.getElementById('roomBack')
 const cancelRoom=document.getElementById('cancelRoom')
 const roomCode=document.getElementById('roomCode')
 const copyRoom=document.getElementById('copyRoom')
+const signalOutput=document.getElementById('signalOutput')
+const signalOutLabel=document.getElementById('signalOutLabel')
+const answerBox=document.getElementById('answerBox')
+const answerInput=document.getElementById('answerInput')
+const applyAnswer=document.getElementById('applyAnswer')
+const waitingTitle=document.getElementById('waitingTitle')
+const waitingCopy=document.getElementById('waitingCopy')
+const rtcInfo=document.getElementById('rtcInfo')
+const resultScreen=document.getElementById('resultScreen')
+const resultTitle=document.getElementById('resultTitle')
+const resultDetail=document.getElementById('resultDetail')
+const resultBack=document.getElementById('resultBack')
 const promotionScreen=document.getElementById('promotionScreen')
 const promotionCancel=document.getElementById('promotionCancel')
 const promotionButtons=[...document.querySelectorAll('[data-promo]')]
@@ -1541,6 +1588,17 @@ function render(){
   }
 }
 
+
+function hideResultPopup(){
+  resultScreen.classList.add('hidden')
+}
+
+function showResultPopup(title,detail){
+  resultTitle.textContent=String(title||'GAME SELESAI')
+  resultDetail.textContent=String(detail||'Permainan selesai.')
+  resultScreen.classList.remove('hidden')
+}
+
 function setStatus(){
   const t=terminal(game)
 
@@ -1550,7 +1608,6 @@ function setStatus(){
     pendingMove=false
     newBtn.textContent='KEMBALI KE MENU'
     newBtn.disabled=false
-    setTimeout(()=>showMenu('Game selesai. Pilih mode untuk bermain lagi.'),2500)
 
     if(t.type==='draw'){
       const drawText={
@@ -1563,6 +1620,7 @@ function setStatus(){
       statusEl.textContent=info[0]
       detailEl.textContent=info[1]
       reportResult('draw')
+      showResultPopup(info[0],info[1])
     }else{
       const winner=t.loser==='w'?'b':'w'
 
@@ -1571,21 +1629,25 @@ function setStatus(){
           statusEl.textContent='CHECKMATE • YOU WIN 🏆'
           detailEl.textContent='NEXA AI defeated.'
           soundWin()
+          showResultPopup('KAMU MENANG 🏆','NEXA AI berhasil dikalahkan.')
         }else{
           statusEl.textContent='CHECKMATE • NEXA WINS'
           detailEl.textContent='Coba lagi 😭'
           soundLose()
+          showResultPopup('KAMU KALAH','NEXA AI memenangkan permainan.')
         }
       }else if(winner===playerColor){
         statusEl.textContent='CHECKMATE • KAMU MENANG 🏆'
         detailEl.textContent=`${NEXA_CONFIG.opponentName||'Lawan'} kalah.`
         soundWin()
         reportResult(playerColor==='w'?'white':'black')
+        showResultPopup('KAMU MENANG 🏆',`${NEXA_CONFIG.opponentName||'Lawan'} kalah.`)
       }else{
         statusEl.textContent='CHECKMATE • KAMU KALAH'
         detailEl.textContent=`${NEXA_CONFIG.opponentName||'Lawan'} menang.`
         soundLose()
         reportResult(playerColor==='w'?'black':'white')
+        showResultPopup('KAMU KALAH',`${NEXA_CONFIG.opponentName||'Lawan'} menang.`)
       }
     }
 
@@ -1623,18 +1685,22 @@ function doHumanMove(m){
 
   if(currentMode==='multi'){
     if(!connected||pendingMove||!roomChannel||!roomChannel.ready()){
-      statusEl.textContent='Koneksi match belum siap.'
+      statusEl.textContent='Koneksi WebRTC belum siap.'
       return
     }
 
     const wireMove={fy:m.fy,fx:m.fx,ty:m.ty,tx:m.tx,promo:m.promo||null}
     pendingMove=true
-    statusEl.textContent='Mengirim langkah ke Cloudflare...'
+    statusEl.textContent='Mengirim langkah via WebRTC...'
 
-    if(!roomChannel.send({type:'move',seq:moveSeq,move:wireMove})){
+    const seq=moveSeq
+    if(!roomChannel.send({type:'move',seq,move:wireMove})){
       pendingMove=false
-      statusEl.textContent='Koneksi Cloudflare belum siap.'
+      statusEl.textContent='Koneksi WebRTC belum siap.'
+      return
     }
+    networkMoves.push(wireMove)
+    applyNetworkMove(wireMove)
     return
   }
 
@@ -1777,6 +1843,7 @@ canvas.addEventListener(
 
 function restart(){
   initAudio()
+  hideResultPopup()
   currentMode='solo'
   playerColor='w'
   connected=false
@@ -1838,7 +1905,7 @@ function applyNetworkMove(entry){
   const move=resolveNetworkMove(entry)
   if(!move){
     statusEl.textContent='⚠️ Sinkronisasi langkah gagal.'
-    detailEl.textContent='Buka ulang papan catur untuk resync.'
+    detailEl.textContent='Pairing WebRTC perlu dibuat ulang jika state berbeda.'
     return false
   }
 
@@ -1880,17 +1947,12 @@ function replayMoves(moves=[]){
 }
 
 function reportResult(){
-  // Cloudflare Worker authoritative menentukan hasil final.
-  // Client hanya menampilkan hasil lokal sambil menunggu event server.
+  // P2P: kedua peer menjalankan engine yang sama dan memvalidasi move lokal.
   resultSent=true
 }
 
 function handleServerResult(result,reason){
   if(ended&&reason!=='resign')return
-  if(reason!=='resign'){
-    setStatus()
-    return
-  }
 
   ended=true
   thinking=false
@@ -1898,19 +1960,22 @@ function handleServerResult(result,reason){
   newBtn.textContent='KEMBALI KE MENU'
   newBtn.disabled=false
   const won=(result==='white'&&playerColor==='w')||(result==='black'&&playerColor==='b')
+
   if(result==='draw'){
     statusEl.textContent='DRAW'
     detailEl.textContent='Match berakhir remis.'
+    showResultPopup('DRAW','Match berakhir remis.')
   }else if(won){
     statusEl.textContent='KAMU MENANG 🏆'
-    detailEl.textContent='Lawan menyerah.'
+    detailEl.textContent=reason==='resign'?'Lawan menyerah.':'Match selesai.'
     soundWin()
+    showResultPopup('KAMU MENANG 🏆',detailEl.textContent)
   }else{
     statusEl.textContent='KAMU KALAH'
-    detailEl.textContent='Match selesai.'
+    detailEl.textContent=reason==='resign'?'Kamu menyerah.':'Match selesai.'
     soundLose()
+    showResultPopup('KAMU KALAH',detailEl.textContent)
   }
-  setTimeout(()=>showMenu('Game selesai. Pilih mode untuk bermain lagi.'),2500)
 }
 
 function clearRoomTimers(){
@@ -1918,192 +1983,205 @@ function clearRoomTimers(){
   if(roomHeartbeatTimer){clearInterval(roomHeartbeatTimer);roomHeartbeatTimer=null}
 }
 
-function workerSocketUrl(){
-  try{
-    const raw=String(NEXA_CONFIG.wsUrl||'').trim()
-    if(!raw)return''
-    const withScheme=/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)?raw:`https://${raw}`
-    const u=new URL(withScheme)
-    u.protocol=u.protocol==='http:'?'ws:':u.protocol==='https:'?'wss:':u.protocol
-    if(u.protocol!=='ws:'&&u.protocol!=='wss:')return''
-    u.pathname='/chess'
-    u.search=''
-    u.hash=''
-    return u.toString()
-  }catch{return''}
+function normalizeIceServers(){
+  const src=Array.isArray(NEXA_CONFIG.iceServers)?NEXA_CONFIG.iceServers:[]
+  return src.map(server=>{
+    const urls=Array.isArray(server?.urls)?server.urls:[server?.urls]
+    return {
+      urls:urls.filter(Boolean),
+      ...(server?.username?{username:String(server.username)}:{}),
+      ...(server?.credential?{credential:String(server.credential)}:{})
+    }
+  }).filter(server=>server.urls.length)
 }
 
-const GATEWAY_URL=workerSocketUrl()
+const ICE_SERVERS=normalizeIceServers()
 
-function socketLabel(){
-  try{
-    const u=new URL(GATEWAY_URL)
-    return u.host+'/chess'
-  }catch{return'Cloudflare Worker tidak valid'}
+function randomPairId(){
+  const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let out=''
+  for(let i=0;i<8;i++)out+=alphabet[Math.floor(Math.random()*alphabet.length)]
+  return out
 }
 
-function webviewOriginLabel(){
-  try{return `${location.origin||'null'} • ${location.protocol||'?'}`}catch{return'origin tidak terbaca'}
+function encodeSignal(value){
+  const raw=unescape(encodeURIComponent(JSON.stringify(value)))
+  let bin=''
+  for(let i=0;i<raw.length;i++)bin+=String.fromCharCode(raw.charCodeAt(i))
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')
 }
 
-async function copyRoomId(){
-  const value=String(roomId||roomCode?.textContent||'').trim()
-  if(!value||value==='--------')return
+function decodeSignal(value){
+  let raw=String(value||'').trim().replace(/\s+/g,'').replace(/-/g,'+').replace(/_/g,'/')
+  while(raw.length%4)raw+='='
+  const bin=atob(raw)
+  let bytes=''
+  for(let i=0;i<bin.length;i++)bytes+=String.fromCharCode(bin.charCodeAt(i))
+  return JSON.parse(decodeURIComponent(escape(bytes)))
+}
+
+async function copyText(value,label='Kode'){
+  const text=String(value||'')
+  if(!text)return false
   let ok=false
   try{
     if(navigator.clipboard&&window.isSecureContext){
-      await navigator.clipboard.writeText(value)
+      await navigator.clipboard.writeText(text)
       ok=true
     }
   }catch{}
   if(!ok){
     try{
       const el=document.createElement('textarea')
-      el.value=value
+      el.value=text
       el.setAttribute('readonly','')
       el.style.position='fixed'
       el.style.opacity='0'
       document.body.appendChild(el)
       el.select()
-      el.setSelectionRange(0,value.length)
+      el.setSelectionRange(0,text.length)
       ok=!!document.execCommand('copy')
       el.remove()
     }catch{}
   }
-  menuStatus.textContent=ok?`✅ Room ID ${value} disalin.`:`Room ID: ${value} • tahan ID untuk salin.`
+  menuStatus.textContent=ok?`✅ ${label} disalin. Kirim lewat chat WhatsApp.`:`Tahan kode lalu salin manual.`
+  return ok
 }
 
-class NexaCloudflareChess{
-  constructor(onMessage,onState){
+function waitIceComplete(pc,timeoutMs=9000){
+  if(pc.iceGatheringState==='complete')return Promise.resolve()
+  return new Promise(resolve=>{
+    let done=false
+    const finish=()=>{
+      if(done)return
+      done=true
+      clearTimeout(timer)
+      pc.removeEventListener('icegatheringstatechange',onState)
+      resolve()
+    }
+    const onState=()=>{if(pc.iceGatheringState==='complete')finish()}
+    const timer=setTimeout(finish,timeoutMs)
+    pc.addEventListener('icegatheringstatechange',onState)
+  })
+}
+
+class NexaRtcChess{
+  constructor({host,onMessage,onState}){
+    this.host=!!host
     this.onMessage=onMessage
     this.onState=onState
-    this.ws=null
+    this.pc=null
+    this.dc=null
     this.closed=false
-    this.authenticated=false
-    this.authToken=String(NEXA_CONFIG.menuToken||'')
-    this.reconnect=null
-    this.reconnectDelay=1000
-    this.heartbeat=null
+    this.localCode=''
+    this.remoteName='Player'
   }
 
-  ready(){
-    return !!(this.authenticated&&this.ws&&this.ws.readyState===1)
-  }
+  ready(){return !!(this.dc&&this.dc.readyState==='open')}
 
   send(obj){
-    if(!this.ws||this.ws.readyState!==1)return false
-    try{
-      this.ws.send(JSON.stringify(obj))
-      return true
-    }catch{return false}
-  }
-
-  requestState(){
     if(!this.ready())return false
-    return this.send({type:'auth',token:this.authToken})
+    try{this.dc.send(JSON.stringify(obj));return true}catch{return false}
   }
 
-  switchToken(token){
-    const next=String(token||'').trim()
-    if(!next)return false
-    this.authToken=next
-    this.authenticated=false
-    clearTimeout(this.reconnect)
-    const old=this.ws
-    this.ws=null
-    if(old){try{old.close(1000,'reauth')}catch{}}
-    setTimeout(()=>this.connect(),80)
-    return true
-  }
+  emitState(state,detail){try{this.onState&&this.onState(state,detail||{})}catch{}}
 
-  connect(){
-    if(this.closed||!GATEWAY_URL||!this.authToken)return
-    this.authenticated=false
-    this.onState&&this.onState('connecting')
-
-    try{
-      const ws=new WebSocket(GATEWAY_URL)
-      this.ws=ws
-
-      const timeout=setTimeout(()=>{
-        if(this.ws===ws&&ws.readyState===0){try{ws.close()}catch{}}
-      },10000)
-
-      ws.onopen=()=>{
-        clearTimeout(timeout)
-        if(this.ws!==ws||this.closed)return
-        this.onState&&this.onState('open')
-        this.send({type:'auth',token:this.authToken})
-        this.heartbeat=setInterval(()=>{
-          if(this.ws===ws&&ws.readyState===1){
-            try{ws.send('ping')}catch{}
-          }
-        },20000)
-      }
-
-      ws.onmessage=e=>{
-        if(e.data==='pong')return
-        let msg
-        try{msg=JSON.parse(e.data)}catch{return}
-        if(!msg)return
-
-        if(msg.type==='menu_ready'||msg.type==='state'){
-          this.authenticated=true
-          this.reconnectDelay=1000
-          this.onState&&this.onState('joined',{kind:msg.type})
-        }
-
-        if(msg.type==='error'&&String(msg.code||'')==='INVALID_TOKEN'){
-          this.authenticated=false
-          this.onState&&this.onState('auth_error',{reason:'INVALID_TOKEN'})
-        }
-
-        this.onMessage&&this.onMessage(msg)
-      }
-
-      ws.onerror=()=>{
-        clearTimeout(timeout)
-        if(this.ws!==ws||this.closed)return
-        this.onState&&this.onState('error')
-      }
-
-      ws.onclose=e=>{
-        clearTimeout(timeout)
-        if(this.heartbeat){clearInterval(this.heartbeat);this.heartbeat=null}
-        if(this.ws!==ws)return
-        this.ws=null
-        this.authenticated=false
-        if(this.closed)return
-
-        this.onState&&this.onState('closed',{
-          code:Number(e?.code)||1006,
-          reason:String(e?.reason||'')
-        })
-
-        clearTimeout(this.reconnect)
-        const delay=this.reconnectDelay
-        this.reconnectDelay=Math.min(this.reconnectDelay*2,8000)
-        this.reconnect=setTimeout(()=>this.connect(),delay)
-      }
-    }catch(err){
-      this.onState&&this.onState('error',{reason:String(err?.message||err||'')})
-      if(!this.closed)this.reconnect=setTimeout(()=>this.connect(),1500)
+  setupDataChannel(dc){
+    this.dc=dc
+    dc.onopen=()=>{
+      if(this.closed)return
+      this.emitState('open')
+      this.send({type:'hello',name:String(NEXA_CONFIG.playerName||'NEXA Player').slice(0,48)})
     }
+    dc.onmessage=e=>{
+      let msg
+      try{msg=JSON.parse(String(e.data||''))}catch{return}
+      if(msg?.type==='hello'&&msg?.name){
+        this.remoteName=String(msg.name).slice(0,48)
+        this.emitState('peer_name',{name:this.remoteName})
+      }
+      this.onMessage&&this.onMessage(msg)
+    }
+    dc.onerror=()=>this.emitState('error',{reason:'DATA_CHANNEL_ERROR'})
+    dc.onclose=()=>{if(!this.closed)this.emitState('closed',{reason:'DATA_CHANNEL_CLOSED'})}
+  }
+
+  createPeer(){
+    const pc=new RTCPeerConnection({
+      iceServers:ICE_SERVERS,
+      iceCandidatePoolSize:4,
+      bundlePolicy:'max-bundle'
+    })
+    this.pc=pc
+    pc.onconnectionstatechange=()=>{
+      const state=String(pc.connectionState||'')
+      this.emitState('connection',{state})
+      if(state==='failed'||state==='closed')this.emitState('closed',{reason:state})
+    }
+    pc.oniceconnectionstatechange=()=>this.emitState('ice',{state:String(pc.iceConnectionState||'')})
+    pc.onicecandidateerror=e=>this.emitState('ice_error',{code:e?.errorCode||0,text:e?.errorText||''})
+    return pc
+  }
+
+  async createOffer(){
+    const pc=this.createPeer()
+    const dc=pc.createDataChannel('nexa-chess',{ordered:true})
+    this.setupDataChannel(dc)
+    const offer=await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    await waitIceComplete(pc)
+    const local=pc.localDescription
+    if(!local?.sdp)throw new Error('RTC_OFFER_EMPTY')
+    const pairId=randomPairId()
+    this.localCode=encodeSignal({
+      v:1,t:'offer',id:pairId,
+      name:String(NEXA_CONFIG.playerName||'NEXA Player').slice(0,48),
+      sdp:local.sdp
+    })
+    return {pairId,code:this.localCode}
+  }
+
+  async acceptOffer(code){
+    const payload=decodeSignal(code)
+    if(payload?.v!==1||payload?.t!=='offer'||!payload?.sdp)throw new Error('INVALID_HOST_CODE')
+    this.remoteName=String(payload.name||'Player').slice(0,48)
+    const pc=this.createPeer()
+    pc.ondatachannel=e=>this.setupDataChannel(e.channel)
+    await pc.setRemoteDescription({type:'offer',sdp:String(payload.sdp)})
+    const answer=await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+    await waitIceComplete(pc)
+    const local=pc.localDescription
+    if(!local?.sdp)throw new Error('RTC_ANSWER_EMPTY')
+    this.localCode=encodeSignal({
+      v:1,t:'answer',id:String(payload.id||''),
+      name:String(NEXA_CONFIG.playerName||'NEXA Player').slice(0,48),
+      sdp:local.sdp
+    })
+    return {pairId:String(payload.id||'P2P'),code:this.localCode,opponentName:this.remoteName}
+  }
+
+  async acceptAnswer(code){
+    const payload=decodeSignal(code)
+    if(payload?.v!==1||payload?.t!=='answer'||!payload?.sdp)throw new Error('INVALID_ANSWER_CODE')
+    this.remoteName=String(payload.name||'Player').slice(0,48)
+    await this.pc.setRemoteDescription({type:'answer',sdp:String(payload.sdp)})
+    return {opponentName:this.remoteName}
   }
 
   close(){
     this.closed=true
-    this.authenticated=false
-    clearTimeout(this.reconnect)
-    if(this.heartbeat){clearInterval(this.heartbeat);this.heartbeat=null}
-    if(this.ws){try{this.ws.close(1000,'menu')}catch{};this.ws=null}
+    try{this.dc?.close()}catch{}
+    try{this.pc?.close()}catch{}
+    this.dc=null
+    this.pc=null
   }
 }
 
 function beginMatchedGame(data){
   clearRoomTimers()
   roomStarted=true
-  matchId='cloudflare'
+  matchId='webrtc-p2p'
   NEXA_CONFIG.playerColor=data?.playerColor==='b'?'b':'w'
   NEXA_CONFIG.opponentName=String(data?.opponentName||'Player').slice(0,48)
 
@@ -2115,8 +2193,9 @@ function beginMatchedGame(data){
   newBtn.textContent='GAME AKTIF'
   newBtn.disabled=true
   menuScreen.classList.add('hidden')
+  hideResultPopup()
 
-  connected=false
+  connected=true
   pendingMove=false
   resultSent=false
   moveSeq=0
@@ -2127,34 +2206,13 @@ function beginMatchedGame(data){
   options=[]
   lastMove=null
 
-  detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName} • Cloudflare Durable Object`
-  statusEl.textContent='Match ditemukan • sinkronisasi...'
+  detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName} • WebRTC P2P${NEXA_CONFIG.turnConfigured?' + TURN':''}`
+  statusEl.textContent=game.turn===playerColor?'Giliran kamu.':`${NEXA_CONFIG.opponentName} mulai duluan...`
   render()
 }
 
-function connectMatchState(data){
-  if(data?.color==='w'||data?.color==='b'){
-    playerColor=data.color
-    NEXA_CONFIG.playerColor=data.color
-  }
-  if(data?.opponentName){
-    NEXA_CONFIG.opponentName=String(data.opponentName).slice(0,48)
-  }
-
-  flipped=playerColor==='b'
-  youColorEl.textContent=playerColor==='w'?'WHITE ♙':'BLACK ♟'
-  connected=true
-  pendingMove=false
-  detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName||'Player'} • Cloudflare Durable Object`
-  replayMoves(Array.isArray(data?.moves)?data.moves:[])
-
-  if(data?.status==='finished'){
-    handleServerResult(data.result,data.terminalReason)
-  }
-}
-
 function requestMatchState(){
-  if(roomChannel&&roomChannel.ready())roomChannel.requestState()
+  // Ordered RTCDataChannel menjaga urutan. Tidak ada server authoritative untuk resync.
 }
 
 function setMenuPanel(name){
@@ -2169,26 +2227,26 @@ function configureMultiplayerButton(){
     multiModeInfo.textContent='Main bareng hanya support private chat.'
     return
   }
-
   if(!NEXA_CONFIG.registered){
     multiMode.disabled=true
     multiModeInfo.textContent='Register NEXA dulu untuk membuka multiplayer.'
     return
   }
-
-  if(!NEXA_CONFIG.multiplayerReady||!GATEWAY_URL||!NEXA_CONFIG.menuToken){
+  if(typeof RTCPeerConnection!=='function'){
     multiMode.disabled=true
-    multiModeInfo.textContent=NEXA_CONFIG.multiplayerIssue?'Cloudflare config error.':'Server multiplayer belum aktif.'
+    multiModeInfo.textContent='WebRTC tidak tersedia di client WhatsApp ini.'
     return
   }
-
   multiMode.disabled=false
-  multiModeInfo.textContent='Main real-time langsung via Cloudflare dengan Room ID.'
+  multiModeInfo.textContent=NEXA_CONFIG.turnConfigured
+    ? 'WebRTC P2P + Cloudflare TURN fallback.'
+    : 'WebRTC P2P + STUN. TURN belum dikonfigurasi.'
 }
 
 function showMenu(message='Pilih salah satu mode.'){
   currentMode='menu'
   hidePromotion()
+  hideResultPopup()
   document.body.classList.add('menu-open')
   thinking=false
   selected=null
@@ -2203,6 +2261,7 @@ function showMenu(message='Pilih salah satu mode.'){
   opponentSessionId=''
   networkMoves=[]
   moveSeq=0
+  hostMode=false
   newBtn.disabled=false
   setMenuPanel('mode')
   configureMultiplayerButton()
@@ -2211,6 +2270,7 @@ function showMenu(message='Pilih salah satu mode.'){
 }
 
 function startSolo(){
+  hideResultPopup()
   document.body.classList.remove('menu-open')
   menuScreen.classList.add('hidden')
   restart()
@@ -2220,233 +2280,140 @@ function showMultiplayerMenu(){
   if(multiMode.disabled)return
   setMenuPanel('room')
   roomInput.value=''
-  menuStatus.textContent='Buat room atau masukkan Room ID.'
+  menuStatus.textContent=NEXA_CONFIG.turnConfigured
+    ? 'TURN siap ✅ • buat room atau tempel Kode Host.'
+    : 'STUN aktif • TURN belum diset. Buat room atau tempel Kode Host.'
 }
 
-function normalizeRoomInput(){
-  roomInput.value=String(roomInput.value||'')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g,'')
-    .slice(0,8)
-}
-
-function friendlyCloudflareError(code){
-  const map={
-    AUTH_REQUIRED:'Auth Cloudflare diperlukan.',
-    INVALID_TOKEN:'Token catur ditolak. Buka .catur baru setelah secret disamakan.',
-    ROOM_NOT_FOUND:'Room tidak ditemukan / sudah dipakai / kedaluwarsa.',
-    CANNOT_JOIN_SELF:'Kamu tidak bisa join room sendiri.',
-    HOST_OFFLINE:'Host sedang offline. Minta host buka room lagi.',
-    MATCH_NOT_ACTIVE:'Match sudah tidak aktif.',
-    NOT_YOUR_TURN:'Belum giliran kamu.',
-    ILLEGAL_MOVE:'Langkah ditolak server karena tidak legal.',
-    MOVE_LIMIT:'Batas langkah match tercapai.',
-    MATCH_STATE_CORRUPT:'State match rusak di server.',
-    SERVER_AUTHORITATIVE:'Hasil game ditentukan server.'
-  }
-  return map[code]||String(code||'Cloudflare menolak request.')
-}
-
-function onRealtimeState(state,detail){
-  if(state==='connecting'){
-    if(currentMode==='multi')statusEl.textContent='Menghubungkan Cloudflare...'
-    else menuStatus.textContent=`Menghubungkan Cloudflare... • ${socketLabel()}`
-    return
-  }
-  if(state==='open'){
-    if(currentMode!=='multi')menuStatus.textContent='WSS OPEN ✅ • autentikasi Cloudflare...'
-    return
-  }
-  if(state==='joined'){
-    if(currentMode==='multi'){
-      connected=true
-      statusEl.textContent='Cloudflare tersambung • sinkronisasi...'
-    }
-    return
-  }
-  if(state==='auth_error'){
-    connected=false
-    const reason=String(detail?.reason||'INVALID_TOKEN')
-    if(currentMode==='multi')statusEl.textContent='❌ Cloudflare auth error • '+reason
-    else menuStatus.textContent='❌ Cloudflare auth error • '+reason
-    return
-  }
-  if(state==='error'){
-    const diag=`${socketLabel()} • origin ${webviewOriginLabel()}`
-    if(currentMode==='multi')statusEl.textContent=`❌ WebSocket Cloudflare error • ${diag}`
-    else menuStatus.textContent=`❌ WebSocket Cloudflare error • ${diag}`
-    return
-  }
-  if(state==='closed'){
-    connected=false
-    const code=Number(detail?.code)||1006
-    if(currentMode==='multi')statusEl.textContent=`Koneksi putus (${code}). Menyambung ulang...`
-    else menuStatus.textContent=`WSS tertutup (${code}). Mencoba lagi...`
-  }
-}
-
-function onCloudflareMessage(msg){
+function onRtcMessage(msg){
   const type=String(msg?.type||'')
-
-  if(type==='menu_ready'){
-    if(roomStarted)return
-    if(hostMode){
-      menuStatus.textContent='Membuat room di Cloudflare...'
-      roomChannel.send({type:'create_room'})
-    }else if(roomId){
-      menuStatus.textContent='Mencari room di Cloudflare...'
-      roomChannel.send({type:'join_room',roomId})
-    }
-    return
-  }
-
-  if(type==='room_created'){
-    roomId=String(msg.roomId||'').toUpperCase()
-    roomCode.textContent=roomId||'--------'
-    setMenuPanel('waiting')
-    menuStatus.textContent='Room aktif • menunggu player kedua...'
-    return
-  }
-
-  if(type==='room_cancelled'){
-    if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
-    roomId=''
-    setMenuPanel('room')
-    menuStatus.textContent='Room dibatalkan.'
-    return
-  }
-
-  if(type==='match_ready'){
-    const token=String(msg.matchToken||'').trim()
-    if(!token){
-      menuStatus.textContent='❌ Match token tidak diterima.'
-      return
-    }
-
-    beginMatchedGame({
-      playerColor:msg.playerColor,
-      opponentName:msg.opponentName
-    })
-    roomChannel.switchToken(token)
-    return
-  }
-
-  if(type==='state'){
-    connectMatchState(msg)
-    return
-  }
+  if(type==='hello')return
 
   if(type==='move'){
     if(currentMode!=='multi')return
     const seq=Number(msg.seq)
     if(!Number.isInteger(seq)||seq!==moveSeq){
       pendingMove=false
-      requestMatchState()
+      statusEl.textContent='⚠️ Urutan move P2P tidak cocok.'
       return
     }
-
     const entry=msg.move||{}
     if(applyNetworkMove(entry)){
-      networkMoves.push({
-        fy:Number(entry.fy),
-        fx:Number(entry.fx),
-        ty:Number(entry.ty),
-        tx:Number(entry.tx),
-        promo:entry.promo||null
-      })
-      pendingMove=false
-    }else{
-      pendingMove=false
-      requestMatchState()
+      networkMoves.push({fy:Number(entry.fy),fx:Number(entry.fx),ty:Number(entry.ty),tx:Number(entry.tx),promo:entry.promo||null})
     }
     return
   }
 
-  if(type==='resync'){
-    pendingMove=false
-    replayMoves(Array.isArray(msg.moves)?msg.moves:[])
-    connected=true
-    return
-  }
-
-  if(type==='result'){
-    pendingMove=false
-    handleServerResult(msg.result,msg.reason)
-    return
-  }
-
-  if(type==='error'){
-    const code=String(msg.code||'UNKNOWN_ERROR')
-    const text=friendlyCloudflareError(code)
-    pendingMove=false
-
-    if(currentMode==='multi'){
-      statusEl.textContent='⚠️ '+text
-      if(['NOT_YOUR_TURN','ILLEGAL_MOVE','MATCH_STATE_CORRUPT'].includes(code)){
-        requestMatchState()
-      }
-    }else{
-      menuStatus.textContent='⚠️ '+text
-    }
+  if(type==='resign'){
+    const winner=playerColor==='w'?'white':'black'
+    handleServerResult(winner,'resign')
   }
 }
 
-function openRoomChannel(mode,id){
-  if(!GATEWAY_URL||!NEXA_CONFIG.menuToken){
-    menuStatus.textContent='Cloudflare Chess belum dikonfigurasi.'
+function onRtcState(state,detail){
+  if(state==='ice'){
+    const s=String(detail?.state||'')
+    rtcInfo.textContent=`ICE: ${s}${NEXA_CONFIG.turnConfigured?' • TURN fallback aktif':' • STUN only'}`
     return
   }
-
-  clearRoomTimers()
-  if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
-
-  hostMode=mode==='host'
-  roomId=hostMode?'':String(id||'').toUpperCase()
-  roomStarted=false
-  matchId=''
-  opponentSessionId=''
-  networkMoves=[]
-  moveSeq=0
-  pendingMove=false
-
-  if(hostMode){
-    roomCode.textContent='--------'
-    setMenuPanel('waiting')
-    menuStatus.textContent='Menghubungkan Cloudflare...'
-  }else{
-    menuStatus.textContent='Menghubungkan Cloudflare...'
+  if(state==='connection'){
+    const s=String(detail?.state||'')
+    if(currentMode!=='multi')menuStatus.textContent=`WebRTC: ${s}`
+    else if(s==='disconnected')statusEl.textContent='Koneksi WebRTC terputus sementara...'
+    return
   }
+  if(state==='peer_name'&&detail?.name){
+    NEXA_CONFIG.opponentName=String(detail.name).slice(0,48)
+    if(currentMode==='multi')detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName} • WebRTC P2P${NEXA_CONFIG.turnConfigured?' + TURN':''}`
+    return
+  }
+  if(state==='open'){
+    if(currentMode!=='multi'){
+      const color=hostMode?'w':'b'
+      beginMatchedGame({playerColor:color,opponentName:roomChannel?.remoteName||'Player'})
+    }else{
+      connected=true
+    }
+    return
+  }
+  if(state==='error'||state==='closed'){
+    connected=false
+    const text=String(detail?.reason||'WebRTC connection error')
+    if(currentMode==='multi')statusEl.textContent='⚠️ '+text
+    else menuStatus.textContent='⚠️ '+text
+  }
+}
 
-  roomChannel=new NexaCloudflareChess(onCloudflareMessage,onRealtimeState)
-  roomChannel.connect()
+async function createHostRoom(){
+  if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
+  hostMode=true
+  roomStarted=false
+  setMenuPanel('waiting')
+  waitingTitle.textContent='⏳ KIRIM KODE HOST'
+  waitingCopy.textContent='Salin kode ini dan kirim ke teman lewat chat WhatsApp.'
+  signalOutLabel.textContent='KODE HOST'
+  signalOutput.value='Menyiapkan WebRTC / ICE...'
+  answerBox.classList.remove('hidden')
+  answerInput.value=''
+  roomCode.textContent='P2P'
+  rtcInfo.textContent=`ICE: gathering...${NEXA_CONFIG.turnConfigured?' • TURN tersedia':' • STUN only'}`
+  menuStatus.textContent='Membuat offer WebRTC...'
+
+  try{
+    roomChannel=new NexaRtcChess({host:true,onMessage:onRtcMessage,onState:onRtcState})
+    const out=await roomChannel.createOffer()
+    roomId=out.pairId
+    roomCode.textContent=roomId
+    signalOutput.value=out.code
+    menuStatus.textContent='✅ Kode Host siap. Kirim ke teman, lalu tempel Kode Balasan di bawah.'
+  }catch(err){
+    if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
+    signalOutput.value=''
+    menuStatus.textContent='❌ Gagal membuat offer: '+String(err?.message||err)
+  }
+}
+
+async function joinHostCode(){
+  const code=String(roomInput.value||'').trim()
+  if(code.length<40){
+    menuStatus.textContent='Tempel Kode Host lengkap dari teman.'
+    return
+  }
+  if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
+  hostMode=false
+  roomStarted=false
+  setMenuPanel('waiting')
+  waitingTitle.textContent='📨 KIRIM KODE BALASAN'
+  waitingCopy.textContent='Kirim Kode Balasan ini ke HOST. Setelah host mengaktifkannya, game otomatis mulai.'
+  signalOutLabel.textContent='KODE BALASAN'
+  signalOutput.value='Menyiapkan answer WebRTC / ICE...'
+  answerBox.classList.add('hidden')
+  roomCode.textContent='P2P'
+  rtcInfo.textContent=`ICE: gathering...${NEXA_CONFIG.turnConfigured?' • TURN tersedia':' • STUN only'}`
+  menuStatus.textContent='Membaca Kode Host...'
+
+  try{
+    roomChannel=new NexaRtcChess({host:false,onMessage:onRtcMessage,onState:onRtcState})
+    const out=await roomChannel.acceptOffer(code)
+    roomId=out.pairId
+    roomCode.textContent=roomId||'P2P'
+    signalOutput.value=out.code
+    NEXA_CONFIG.opponentName=out.opponentName||'Player'
+    menuStatus.textContent='✅ Kode Balasan siap. Kirim ke host dan biarkan layar ini tetap terbuka.'
+  }catch(err){
+    if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
+    signalOutput.value=''
+    menuStatus.textContent='❌ Kode Host tidak valid / gagal WebRTC: '+String(err?.message||err)
+  }
 }
 
 soloMode.addEventListener('click',startSolo)
 multiMode.addEventListener('click',showMultiplayerMenu)
-
-addRoom.addEventListener('click',()=>{
-  openRoomChannel('host','')
-})
-
-copyRoom.addEventListener('click',copyRoomId)
-
-roomInput.addEventListener('input',normalizeRoomInput)
-roomInput.addEventListener('keydown',e=>{
-  if(e.key==='Enter')joinRoom.click()
-})
-
-joinRoom.addEventListener('click',()=>{
-  normalizeRoomInput()
-  const id=roomInput.value
-  if(id.length!==8){
-    menuStatus.textContent='Masukkan Room ID 8 karakter.'
-    return
-  }
-  openRoomChannel('guest',id)
-})
+addRoom.addEventListener('click',createHostRoom)
+copyRoom.addEventListener('click',()=>copyText(signalOutput.value,hostMode?'Kode Host':'Kode Balasan'))
+joinRoom.addEventListener('click',joinHostCode)
 
 roomBack.addEventListener('click',()=>{
-  clearRoomTimers()
   if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
   roomId=''
   setMenuPanel('mode')
@@ -2454,24 +2421,40 @@ roomBack.addEventListener('click',()=>{
 })
 
 cancelRoom.addEventListener('click',()=>{
-  clearRoomTimers()
-  if(roomChannel&&roomChannel.ready()){
-    menuStatus.textContent='Membatalkan room...'
-    roomChannel.send({type:'cancel_room'})
-  }else{
-    if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
-    roomId=''
-    setMenuPanel('room')
-    menuStatus.textContent='Room dibatalkan.'
+  if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
+  roomId=''
+  setMenuPanel('room')
+  menuStatus.textContent='Pairing dibatalkan.'
+})
+
+applyAnswer.addEventListener('click',async()=>{
+  if(!hostMode||!roomChannel){
+    menuStatus.textContent='Buat Room sebagai host dulu.'
+    return
+  }
+  const code=String(answerInput.value||'').trim()
+  if(code.length<40){
+    menuStatus.textContent='Tempel Kode Balasan lengkap dari teman.'
+    return
+  }
+  try{
+    const out=await roomChannel.acceptAnswer(code)
+    NEXA_CONFIG.opponentName=out.opponentName||'Player'
+    menuStatus.textContent='Kode Balasan diterima • menunggu DataChannel OPEN...'
+    rtcInfo.textContent='ICE: connecting...'
+  }catch(err){
+    menuStatus.textContent='❌ Kode Balasan tidak valid: '+String(err?.message||err)
   }
 })
+
+resultBack.addEventListener('click',()=>showMenu('Pilih mode untuk bermain lagi.'))
 
 
 newBtn.addEventListener(
   'click',
   ()=>{
     if(ended||terminal(game)){
-      showMenu('Game selesai. Pilih mode untuk bermain lagi.')
+      showMenu('Pilih mode untuk bermain lagi.')
       return
     }
     restart()
