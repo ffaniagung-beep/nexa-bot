@@ -1,0 +1,43 @@
+NEXA CHESS V6 — multiplayer repair + rules hardening
+
+FILES TO REPLACE IN NEXA ROOT:
+- commands/catur.js
+- lib/chessRealtime.js
+- arcade/chess.html
+
+FILES TO REPLACE IN CLOUDFLARE WORKER SOURCE:
+- cloudflare-chess/src/index.js
+- cloudflare-chess/wrangler.jsonc
+
+WHAT CHANGED
+- WebSocket URL is normalized to wss://.../chess on both Node and mini-app sides.
+  A mistaken trailing slash or /health path no longer sends chess to the wrong endpoint.
+- NEXA chess env vars are read dynamically instead of being frozen when the module is imported.
+- Cloudflare trims NEXA_CHESS_SECRET before HMAC verification, matching the NEXA side.
+- /health now reports only safe booleans: secretConfigured and durableObjectConfigured.
+- Worker logs WebSocket upgrade/auth failures without logging tokens or secrets.
+- wrangler.jsonc declares NEXA_CHESS_SECRET as a required runtime secret and enables observability.
+- Mini-app reports WSS OPEN / timeout / close code / actual endpoint label for diagnostics.
+- Multiplayer Worker is now authoritative: it reconstructs the board and rejects illegal moves.
+  Clients can no longer decide a win/draw by sending an arbitrary result message.
+- Promotion supports Queen/Rook/Bishop/Knight selection.
+- Castling, en passant, check/checkmate and stalemate are validated on client + server.
+- Added automatic draw detection for threefold repetition, 50-move rule, and insufficient material.
+- Multiplayer move stream now carries promotion choice and remains replay/resync compatible.
+
+DEPLOY ORDER
+1. Replace the three NEXA files above on Pterodactyl, then restart the bot.
+2. Replace the two cloudflare-chess files in your Git repo and push them.
+3. Let Cloudflare Git deploy run, or run `npx wrangler deploy` from cloudflare-chess.
+4. Open https://<worker>/health. Expected fields include:
+   "secretConfigured": true
+   "durableObjectConfigured": true
+5. Send a NEW .catur message; old bubbles keep the old embedded HTML/token.
+
+ENV ON PTERO ROOT (.env)
+NEXA_CHESS_WS_URL=https://nexa-chess.nametrill.workers.dev
+NEXA_CHESS_SECRET=<same value as Cloudflare runtime secret>
+
+IMPORTANT
+- Do not put the secret in this patch or commit it to Git.
+- Existing cloudflare-chess/package-lock.json does not need to be replaced; dependencies did not change.

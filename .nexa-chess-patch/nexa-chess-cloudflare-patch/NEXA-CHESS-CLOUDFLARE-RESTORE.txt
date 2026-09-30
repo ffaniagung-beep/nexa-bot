@@ -1,0 +1,76 @@
+NEXA CHESS — RESTORE CLOUDFLARE + ELAINA
+=========================================
+
+ACTIVE ARCHITECTURE AFTER THIS PATCH
+------------------------------------
+WhatsApp -> Elaina sendHtmlApp -> WebSocket -> Cloudflare Worker/Durable Object
+
+Worker already used by this project:
+  https://nexa-chess.nametrill.workers.dev
+
+The mini-app normalizes that value to:
+  wss://nexa-chess.nametrill.workers.dev/chess
+
+VPS ROOT .env
+-------------
+Keep only these Chess realtime values for the Cloudflare path:
+
+  NEXA_CHESS_WS_URL=https://nexa-chess.nametrill.workers.dev
+  NEXA_CHESS_SECRET=<SAME VALUE AS CLOUDFLARE NEXA_CHESS_SECRET>
+
+Optional if already used by the bot:
+  NEXA_BOT_ID=main
+
+Old Chess Vercel/Supabase values are no longer read by commands/catur.js or
+lib/chessRealtime.js after this patch. They can be removed from the VPS root
+.env after you confirm Cloudflare multiplayer works.
+
+IMPORTANT ABOUT THE SECRET
+--------------------------
+Cloudflare Dashboard -> Workers & Pages -> nexa-chess -> Settings ->
+Variables and Secrets -> NEXA_CHESS_SECRET
+
+The value there MUST be exactly the same as NEXA_CHESS_SECRET in the VPS .env.
+Do not commit the secret to Git.
+
+Generate a fresh value if needed:
+  node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+
+CLOUDFLARE HEALTH CHECK
+-----------------------
+Open:
+  https://nexa-chess.nametrill.workers.dev/health
+
+Expected important fields:
+  "secretConfigured": true
+  "durableObjectConfigured": true
+
+DEPLOY / GIT FLOW
+-----------------
+After replacing the files:
+  npm install
+  npm run check
+  git add commands/catur.js lib/chessRealtime.js arcade/chess.html package.json package-lock.json NEXA-CHESS-CLOUDFLARE-RESTORE.txt
+  git commit -m "restore chess cloudflare realtime"
+  git push origin main
+
+On VPS:
+1. Set NEXA_CHESS_WS_URL and NEXA_CHESS_SECRET in the root .env.
+2. Make sure the Cloudflare secret matches exactly.
+3. Pull/restart using your normal VPS workflow.
+4. Send a NEW .catur message. Old WhatsApp mini-app bubbles still contain old embedded HTML/config.
+
+FILES CHANGED
+-------------
+- commands/catur.js
+  Back to @rexxhayanasi/elaina-baileys sendHtmlApp.
+- lib/chessRealtime.js
+  Generates HMAC menu tickets locally and points directly to Cloudflare WSS.
+- arcade/chess.html
+  Uses Cloudflare Worker protocol: auth/create_room/join_room/match_ready/state/move/resync/result.
+  Moves are applied after server confirmation instead of client-authoritative broadcast.
+- package.json / package-lock.json
+  Removed @yudzxml/baileys because it was only used by the V12 chess sender.
+
+The existing cloudflare-chess Worker source is kept unchanged because its
+current protocol already matches this restored client.
