@@ -1,7 +1,10 @@
 export default function handler(_req, res) {
-  const apiSecretConfigured = Boolean(String(process.env.NEXA_CHESS_API_SECRET || '').trim())
-  const jwtSecretConfigured = Boolean(String(process.env.SUPABASE_JWT_SECRET || '').trim())
-  const supabaseUrlConfigured = Boolean(String(process.env.SUPABASE_URL || '').trim())
+  const values = {
+    apiSecretConfigured: Boolean(String(process.env.NEXA_CHESS_API_SECRET || '').trim()),
+    supabaseUrlConfigured: Boolean(String(process.env.SUPABASE_URL || '').trim()),
+    publishableKeyConfigured: Boolean(String(process.env.SUPABASE_PUBLISHABLE_KEY || '').trim()),
+    secretKeyConfigured: Boolean(String(process.env.SUPABASE_SECRET_KEY || '').trim())
+  }
 
   res.statusCode = 200
   res.setHeader('content-type', 'application/json; charset=utf-8')
@@ -10,8 +13,7 @@ export default function handler(_req, res) {
     ok: true,
     service: 'nexa-chess-vercel',
     transport: 'supabase-realtime',
-    apiSecretConfigured,
-    jwtSecretConfigured,
-    supabaseUrlConfigured
+    authMode: 'supabase-anonymous-auth',
+    ...values
   }))
 }

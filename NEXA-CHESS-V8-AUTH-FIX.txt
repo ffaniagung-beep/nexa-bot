@@ -1,0 +1,38 @@
+NEXA Chess V8 - modern Supabase Auth fix
+
+WHAT CHANGED
+- Removes the V7 dependency on SUPABASE_JWT_SECRET / legacy JWT signing.
+- Vercel now asks Supabase Auth to create a real anonymous user/session.
+- Vercel uses SUPABASE_SECRET_KEY only on the backend to add protected app_metadata.
+- The session is refreshed once so those protected claims are included in the JWT.
+- Realtime RLS checks app_metadata + is_anonymous.
+
+SUPABASE
+1. Anonymous Sign-Ins: ON.
+2. Realtime service: ON.
+3. Allow public access to channels: OFF.
+4. Run supabase-chess/setup.sql again after applying this patch.
+
+VERCEL ENV (later)
+NEXA_CHESS_API_SECRET=<same private secret used by NEXA/Ptero>
+SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_SECRET_KEY=sb_secret_...
+
+DO NOT CREATE / REMOVE IF PRESENT
+SUPABASE_JWT_SECRET
+
+NEXA/PTERO ENV (later)
+NEXA_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+NEXA_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+NEXA_CHESS_VERCEL_URL=https://YOUR_VERCEL_PROJECT.vercel.app
+NEXA_CHESS_API_SECRET=<same as Vercel>
+
+IMPORTANT
+The V7 package-lock.json is stale after this patch because V8 adds @supabase/supabase-js.
+In Termux, after extracting V8, run:
+  cd ~/wa-bot/vercel-chess
+  rm -f package-lock.json
+  npm install --package-lock-only --ignore-scripts
+  cd ~/wa-bot
+Then commit/push.

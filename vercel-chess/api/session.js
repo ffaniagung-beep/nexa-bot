@@ -1,14 +1,11 @@
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
+import { timingSafeEqual } from 'node:crypto'
+import { createClient } from '@supabase/supabase-js'
 
 function send(res, status, body) {
   res.statusCode = status
   res.setHeader('content-type', 'application/json; charset=utf-8')
   res.setHeader('cache-control', 'no-store')
   res.end(JSON.stringify(body))
-}
-
-function b64url(input) {
-  return Buffer.from(input).toString('base64url')
 }
 
 function safeEqual(a, b) {
@@ -22,14 +19,6 @@ function bearer(req) {
   const raw = String(req.headers?.authorization || '')
   const match = raw.match(/^Bearer\s+(.+)$/i)
   return match ? match[1].trim() : ''
-}
-
-function signJwt(payload, secret) {
-  const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
-  const body = b64url(JSON.stringify(payload))
-  const data = `${header}.${body}`
-  const sig = createHmac('sha256', secret).update(data).digest('base64url')
-  return `${data}.${sig}`
 }
 
 async function readJson(req) {
@@ -47,6 +36,21 @@ async function readJson(req) {
   try { return JSON.parse(raw) } catch { return {} }
 }
 
+function makeClient(url, key) {
+  return createClient(url, key, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  })
+}
+
+async function bestEffortDelete(adminClient, userId) {
+  if (!adminClient || !userId) return
+  try { await adminClient.auth.admin.deleteUser(userId) } catch {}
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('allow', 'POST')
@@ -54,10 +58,11 @@ export default async function handler(req, res) {
   }
 
   const apiSecret = String(process.env.NEXA_CHESS_API_SECRET || '').trim()
-  const jwtSecret = String(process.env.SUPABASE_JWT_SECRET || '').trim()
   const supabaseUrl = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '')
+  const publishableKey = String(process.env.SUPABASE_PUBLISHABLE_KEY || '').trim()
+  const secretKey = String(process.env.SUPABASE_SECRET_KEY || '').trim()
 
-  if (!apiSecret || !jwtSecret || !supabaseUrl) {
+  if (!apiSecret || !supabaseUrl || !publishableKey || !secretKey) {
     return send(res, 503, { ok: false, error: 'SERVER_NOT_CONFIGURED' })
   }
 
@@ -80,32 +85,75 @@ export default async function handler(req, res) {
     return send(res, 400, { ok: false, error: 'INVALID_PLAYER' })
   }
 
-  const now = Math.floor(Date.now() / 1000)
-  const exp = now + (2 * 60 * 60)
-  const sessionId = randomUUID()
+  const publicClient = makeClient(supabaseUrl, publishableKey)
+  const adminClient = makeClient(supabaseUrl, secretKey)
+  let userId = ''
 
-  const accessToken = signJwt({
-    iss: `${supabaseUrl}/auth/v1`,
-    aud: 'authenticated',
-    role: 'authenticated',
-    sub: sessionId,
-    iat: now,
-    exp,
-    aal: 'aal1',
-    session_id: sessionId,
-    email: '',
-    phone: '',
-    is_anonymous: true,
-    nexa_pid: pid,
-    nexa_name: name || 'NEXA Player',
-    nexa_bot: bot
-  }, jwtSecret)
+  try {
+    // Let Supabase Auth mint a real modern user JWT. No legacy JWT secret needed.
+    const { data: anonData, error: anonError } = await publicClient.auth.signInAnonymously()
+    if (anonError || !anonData?.user || !anonData?.session?.refresh_token) {
+      return send(res, 502, {
+        ok: false,
+        error: 'SUPABASE_ANON_SIGNIN_FAILED',
+        detail: String(anonError?.message || 'No anonymous session')
+      })
+    }
 
-  return send(res, 200, {
-    ok: true,
-    transport: 'supabase-realtime',
-    sessionId,
-    accessToken,
-    expiresAt: exp * 1000
-  })
+    userId = String(anonData.user.id || '')
+    const refreshToken = String(anonData.session.refresh_token || '')
+
+    // Authorization claims belong in app_metadata because clients cannot edit it.
+    const { error: adminError } = await adminClient.auth.admin.updateUserById(userId, {
+      app_metadata: {
+        nexa_chess: true,
+        nexa_bot: bot || 'main',
+        nexa_pid: pid,
+        nexa_name: name || 'NEXA Player'
+      }
+    })
+
+    if (adminError) {
+      await bestEffortDelete(adminClient, userId)
+      return send(res, 502, {
+        ok: false,
+        error: 'SUPABASE_METADATA_FAILED',
+        detail: String(adminError.message || 'Unable to set app metadata')
+      })
+    }
+
+    // Refresh once so the new app_metadata is actually embedded in the access JWT.
+    const { data: refreshed, error: refreshError } = await publicClient.auth.refreshSession({
+      refresh_token: refreshToken
+    })
+
+    const session = refreshed?.session
+    const accessToken = String(session?.access_token || '')
+    const expiresAt = Number(session?.expires_at || 0) * 1000
+
+    if (refreshError || !accessToken || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      await bestEffortDelete(adminClient, userId)
+      return send(res, 502, {
+        ok: false,
+        error: 'SUPABASE_REFRESH_FAILED',
+        detail: String(refreshError?.message || 'No refreshed session')
+      })
+    }
+
+    return send(res, 200, {
+      ok: true,
+      transport: 'supabase-realtime',
+      authMode: 'supabase-anonymous-auth',
+      sessionId: userId,
+      accessToken,
+      expiresAt
+    })
+  } catch (err) {
+    await bestEffortDelete(adminClient, userId)
+    return send(res, 502, {
+      ok: false,
+      error: 'SUPABASE_REQUEST_FAILED',
+      detail: String(err?.message || err || 'Unknown Supabase error').slice(0, 300)
+    })
+  }
 }
