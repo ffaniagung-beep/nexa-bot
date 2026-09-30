@@ -3,6 +3,9 @@
   "name": "nexa-chess",
   "main": "src/index.js",
   "compatibility_date": "2026-09-29",
+  "secrets": {
+    "required": ["NEXA_CHESS_SECRET"]
+  },
   "durable_objects": {
     "bindings": [
       {
@@ -16,5 +19,9 @@
       "tag": "v1",
       "new_sqlite_classes": ["ChessHub"]
     }
-  ]
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
 }

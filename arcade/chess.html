@@ -366,6 +366,44 @@ body.menu-open .bottom{
   font-weight:800;
 }
 
+.promo-screen{
+  position:absolute;
+  inset:0;
+  z-index:35;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+  background:#02050dda;
+  backdrop-filter:blur(4px);
+}
+.promo-screen.hidden{display:none}
+.promo-box{
+  width:100%;
+  max-width:330px;
+  padding:18px;
+  border-radius:18px;
+  border:1px solid #48e8ff55;
+  background:#07101c;
+  text-align:center;
+  box-shadow:0 18px 50px #000c;
+}
+.promo-title{font-size:16px;font-weight:900}
+.promo-copy{margin-top:6px;color:#8391aa;font-size:10px}
+.promo-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px}
+.promo-piece{
+  height:58px;
+  border-radius:13px;
+  border:1px solid #ffffff18;
+  background:#ffffff0b;
+  color:#fff;
+  font-size:30px;
+}
+.promo-cancel{
+  width:100%;height:38px;margin-top:10px;border-radius:11px;
+  border:1px solid #ffffff12;background:#ffffff07;color:#9eabc0;font-weight:800;
+}
+
 </style>
 </head>
 
@@ -430,6 +468,21 @@ body.menu-open .bottom{
   </div>
 </div>
 
+
+
+<div class="promo-screen hidden" id="promotionScreen">
+  <div class="promo-box">
+    <div class="promo-title">PROMOSI PAWN</div>
+    <div class="promo-copy">Pilih bidak pengganti.</div>
+    <div class="promo-grid">
+      <button class="promo-piece" data-promo="Q">♛</button>
+      <button class="promo-piece" data-promo="R">♜</button>
+      <button class="promo-piece" data-promo="B">♝</button>
+      <button class="promo-piece" data-promo="N">♞</button>
+    </div>
+    <button class="promo-cancel" id="promotionCancel">BATAL</button>
+  </div>
+</div>
 
 <header>
   <div>
@@ -512,6 +565,9 @@ const roomInput=document.getElementById('roomInput')
 const roomBack=document.getElementById('roomBack')
 const cancelRoom=document.getElementById('cancelRoom')
 const roomCode=document.getElementById('roomCode')
+const promotionScreen=document.getElementById('promotionScreen')
+const promotionCancel=document.getElementById('promotionCancel')
+const promotionButtons=[...document.querySelectorAll('[data-promo]')]
 
 const S=50
 
@@ -564,6 +620,7 @@ let audio=null
 let muted=false
 let ended=false
 let menuSocket=null
+let pendingPromotionMoves=null
 
 const TIMEOUT={}
 
@@ -659,35 +716,32 @@ function initialBoard(){
 }
 
 function newState(){
-  return{
+  const s={
     b:initialBoard(),
     turn:'w',
-
-    castle:{
-      K:true,
-      Q:true,
-      k:true,
-      q:true
-    },
-
-    ep:null
+    castle:{K:true,Q:true,k:true,q:true},
+    ep:null,
+    halfmove:0,
+    fullmove:1,
+    history:[]
   }
+  s.history=[positionKey(s)]
+  return s
 }
 
 let game=newState()
 
-function clone(s){
+function clone(s,copyHistory=true){
   return{
     b:s.b.map(r=>r.slice()),
     turn:s.turn,
-
-    castle:{
-      ...s.castle
-    },
-
-    ep:s.ep
-      ? {...s.ep}
-      : null
+    castle:{...s.castle},
+    ep:s.ep?{...s.ep}:null,
+    halfmove:Number(s.halfmove)||0,
+    fullmove:Number(s.fullmove)||1,
+    history:copyHistory
+      ? (Array.isArray(s.history)?s.history.slice():[])
+      : (Array.isArray(s.history)?s.history:[])
   }
 }
 
@@ -696,169 +750,96 @@ function enemy(c){
 }
 
 function inside(y,x){
-  return(
-    y>=0&&
-    y<8&&
-    x>=0&&
-    x<8
-  )
+  return y>=0&&y<8&&x>=0&&x<8
+}
+
+function normalizePromotion(value){
+  const p=String(value||'').toUpperCase()
+  return ['Q','R','B','N'].includes(p)?p:''
+}
+
+function epCapturePossible(s){
+  if(!s.ep)return false
+  const side=s.turn
+  const pawnY=side==='w'?s.ep.y+1:s.ep.y-1
+  if(!inside(pawnY,s.ep.x))return false
+  for(const dx of[-1,1]){
+    const x=s.ep.x+dx
+    if(inside(pawnY,x)&&s.b[pawnY][x]===side+'P')return true
+  }
+  return false
+}
+
+function positionKey(s){
+  const board=s.b.map(row=>row.map(p=>p||'--').join('')).join('/')
+  const castle=(s.castle.K?'K':'')+(s.castle.Q?'Q':'')+(s.castle.k?'k':'')+(s.castle.q?'q':'')||'-'
+  const ep=s.ep&&epCapturePossible(s)?`${s.ep.y},${s.ep.x}`:'-'
+  return `${board}|${s.turn}|${castle}|${ep}`
 }
 
 function attacked(s,y,x,by){
   const b=s.b
-
-  const pawnDir=
-    by==='w'
-      ? -1
-      : 1
-
-  const pawnY=
-    y-pawnDir
+  const pawnDir=by==='w'?-1:1
+  const pawnY=y-pawnDir
 
   for(const dx of[-1,1]){
     const xx=x+dx
-
-    if(
-      inside(pawnY,xx)&&
-      b[pawnY][xx]===
-        by+'P'
-    ){
-      return true
-    }
+    if(inside(pawnY,xx)&&b[pawnY][xx]===by+'P')return true
   }
 
-  const knight=[
-    [-2,-1],[-2,1],
-    [-1,-2],[-1,2],
-    [1,-2],[1,2],
-    [2,-1],[2,1]
-  ]
-
-  for(const[dY,dX]of knight){
-    const yy=y+dY
-    const xx=x+dX
-
-    if(
-      inside(yy,xx)&&
-      b[yy][xx]===
-        by+'N'
-    ){
-      return true
-    }
+  for(const[dY,dX]of[
+    [-2,-1],[-2,1],[-1,-2],[-1,2],
+    [1,-2],[1,2],[2,-1],[2,1]
+  ]){
+    const yy=y+dY,xx=x+dX
+    if(inside(yy,xx)&&b[yy][xx]===by+'N')return true
   }
 
-  const bishopDirs=[
-    [-1,-1],[-1,1],
-    [1,-1],[1,1]
-  ]
-
-  for(const[dY,dX]of bishopDirs){
-    let yy=y+dY
-    let xx=x+dX
-
+  for(const[dY,dX]of[[-1,-1],[-1,1],[1,-1],[1,1]]){
+    let yy=y+dY,xx=x+dX
     while(inside(yy,xx)){
       const p=b[yy][xx]
-
       if(p){
-        if(
-          p[0]===by&&
-          (
-            p[1]==='B'||
-            p[1]==='Q'
-          )
-        ){
-          return true
-        }
-
+        if(p[0]===by&&(p[1]==='B'||p[1]==='Q'))return true
         break
       }
-
-      yy+=dY
-      xx+=dX
+      yy+=dY;xx+=dX
     }
   }
 
-  const rookDirs=[
-    [-1,0],[1,0],
-    [0,-1],[0,1]
-  ]
-
-  for(const[dY,dX]of rookDirs){
-    let yy=y+dY
-    let xx=x+dX
-
+  for(const[dY,dX]of[[-1,0],[1,0],[0,-1],[0,1]]){
+    let yy=y+dY,xx=x+dX
     while(inside(yy,xx)){
       const p=b[yy][xx]
-
       if(p){
-        if(
-          p[0]===by&&
-          (
-            p[1]==='R'||
-            p[1]==='Q'
-          )
-        ){
-          return true
-        }
-
+        if(p[0]===by&&(p[1]==='R'||p[1]==='Q'))return true
         break
       }
-
-      yy+=dY
-      xx+=dX
+      yy+=dY;xx+=dX
     }
   }
 
   for(let dy=-1;dy<=1;dy++){
     for(let dx=-1;dx<=1;dx++){
       if(!dy&&!dx)continue
-
-      const yy=y+dy
-      const xx=x+dx
-
-      if(
-        inside(yy,xx)&&
-        b[yy][xx]===
-          by+'K'
-      ){
-        return true
-      }
+      const yy=y+dy,xx=x+dx
+      if(inside(yy,xx)&&b[yy][xx]===by+'K')return true
     }
   }
-
   return false
 }
 
 function kingPos(s,color){
-  for(let y=0;y<8;y++){
-    for(let x=0;x<8;x++){
-      if(
-        s.b[y][x]===
-        color+'K'
-      ){
-        return{
-          y,
-          x
-        }
-      }
-    }
+  for(let y=0;y<8;y++)for(let x=0;x<8;x++){
+    if(s.b[y][x]===color+'K')return{y,x}
   }
-
   return null
 }
 
 function inCheck(s,color){
-  const k=
-    kingPos(s,color)
-
+  const k=kingPos(s,color)
   if(!k)return true
-
-  return attacked(
-    s,
-    k.y,
-    k.x,
-    enemy(color)
-  )
+  return attacked(s,k.y,k.x,enemy(color))
 }
 
 function pseudoMoves(s){
@@ -868,417 +849,205 @@ function pseudoMoves(s){
 
   function add(fy,fx,ty,tx,extra={}){
     if(!inside(ty,tx))return
-
     const target=b[ty][tx]
-
-    if(
-      target&&
-      target[0]===side
-    ){
-      return
-    }
-
-    if(
-      target&&
-      target[1]==='K'
-    ){
-      return
-    }
-
-    out.push({
-      fy,fx,ty,tx,
-      ...extra
-    })
+    if(target&&target[0]===side)return
+    if(target&&target[1]==='K')return
+    out.push({fy,fx,ty,tx,...extra})
   }
 
-  for(let y=0;y<8;y++){
-    for(let x=0;x<8;x++){
-      const p=b[y][x]
+  function addPawnMove(fy,fx,ty,tx,extra={}){
+    const promoRank=side==='w'?0:7
+    if(ty===promoRank){
+      for(const promo of['Q','R','B','N'])add(fy,fx,ty,tx,{...extra,promo})
+    }else add(fy,fx,ty,tx,extra)
+  }
 
-      if(
-        !p||
-        p[0]!==side
-      ){
-        continue
+  for(let y=0;y<8;y++)for(let x=0;x<8;x++){
+    const p=b[y][x]
+    if(!p||p[0]!==side)continue
+    const type=p[1]
+
+    if(type==='P'){
+      const d=side==='w'?-1:1
+      const start=side==='w'?6:1
+      const y1=y+d
+
+      if(inside(y1,x)&&!b[y1][x]){
+        addPawnMove(y,x,y1,x)
+        const y2=y+d*2
+        if(y===start&&inside(y2,x)&&!b[y2][x])add(y,x,y2,x,{double:true})
       }
 
-      const type=p[1]
+      for(const dx of[-1,1]){
+        const yy=y+d,xx=x+dx
+        if(!inside(yy,xx))continue
+        const t=b[yy][xx]
+        if(t&&t[0]!==side&&t[1]!=='K')addPawnMove(y,x,yy,xx)
 
-      if(type==='P'){
-        const d=
-          side==='w'
-            ? -1
-            : 1
-
-        const start=
-          side==='w'
-            ? 6
-            : 1
-
-        const promo=
-          side==='w'
-            ? 0
-            : 7
-
-        const y1=y+d
-
-        if(
-          inside(y1,x)&&
-          !b[y1][x]
-        ){
-          add(
-            y,x,
-            y1,x,
-            y1===promo
-              ? {promo:'Q'}
-              : {}
-          )
-
-          const y2=y+d*2
-
-          if(
-            y===start&&
-            !b[y2][x]
-          ){
-            add(
-              y,x,
-              y2,x,
-              {double:true}
-            )
-          }
-        }
-
-        for(const dx of[-1,1]){
-          const yy=y+d
-          const xx=x+dx
-
-          if(!inside(yy,xx))continue
-
-          const t=b[yy][xx]
-
-          if(
-            t&&
-            t[0]!==side&&
-            t[1]!=='K'
-          ){
-            add(
-              y,x,
-              yy,xx,
-              yy===promo
-                ? {promo:'Q'}
-                : {}
-            )
-          }
-
-          if(
-            s.ep&&
-            s.ep.y===yy&&
-            s.ep.x===xx
-          ){
-            add(
-              y,x,
-              yy,xx,
-              {ep:true}
-            )
-          }
+        if(s.ep&&s.ep.y===yy&&s.ep.x===xx){
+          const capY=side==='w'?yy+1:yy-1
+          if(inside(capY,xx)&&b[capY][xx]===enemy(side)+'P')add(y,x,yy,xx,{ep:true})
         }
       }
+    }
 
-      if(type==='N'){
-        for(const[dY,dX]of[
-          [-2,-1],[-2,1],
-          [-1,-2],[-1,2],
-          [1,-2],[1,2],
-          [2,-1],[2,1]
-        ]){
-          add(
-            y,x,
-            y+dY,
-            x+dX
-          )
+    if(type==='N'){
+      for(const[dY,dX]of[
+        [-2,-1],[-2,1],[-1,-2],[-1,2],
+        [1,-2],[1,2],[2,-1],[2,1]
+      ])add(y,x,y+dY,x+dX)
+    }
+
+    if(type==='B'||type==='R'||type==='Q'){
+      const dirs=[]
+      if(type==='B'||type==='Q')dirs.push([-1,-1],[-1,1],[1,-1],[1,1])
+      if(type==='R'||type==='Q')dirs.push([-1,0],[1,0],[0,-1],[0,1])
+      for(const[dY,dX]of dirs){
+        let yy=y+dY,xx=x+dX
+        while(inside(yy,xx)){
+          if(!b[yy][xx])add(y,x,yy,xx)
+          else{add(y,x,yy,xx);break}
+          yy+=dY;xx+=dX
         }
       }
+    }
 
-      if(
-        type==='B'||
-        type==='R'||
-        type==='Q'
-      ){
-        const dirs=[]
-
-        if(
-          type==='B'||
-          type==='Q'
-        ){
-          dirs.push(
-            [-1,-1],
-            [-1,1],
-            [1,-1],
-            [1,1]
-          )
-        }
-
-        if(
-          type==='R'||
-          type==='Q'
-        ){
-          dirs.push(
-            [-1,0],
-            [1,0],
-            [0,-1],
-            [0,1]
-          )
-        }
-
-        for(const[dY,dX]of dirs){
-          let yy=y+dY
-          let xx=x+dX
-
-          while(inside(yy,xx)){
-            if(!b[yy][xx]){
-              add(
-                y,x,
-                yy,xx
-              )
-            }else{
-              add(
-                y,x,
-                yy,xx
-              )
-              break
-            }
-
-            yy+=dY
-            xx+=dX
-          }
-        }
+    if(type==='K'){
+      for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+        if(dy||dx)add(y,x,y+dy,x+dx)
       }
 
-      if(type==='K'){
-        for(let dy=-1;dy<=1;dy++){
-          for(let dx=-1;dx<=1;dx++){
-            if(!dy&&!dx)continue
+      if(side==='w'&&y===7&&x===4){
+        if(s.castle.K&&b[7][5]===null&&b[7][6]===null&&b[7][7]==='wR'&&!inCheck(s,'w')&&!attacked(s,7,5,'b')&&!attacked(s,7,6,'b'))add(7,4,7,6,{castle:'K'})
+        if(s.castle.Q&&b[7][1]===null&&b[7][2]===null&&b[7][3]===null&&b[7][0]==='wR'&&!inCheck(s,'w')&&!attacked(s,7,3,'b')&&!attacked(s,7,2,'b'))add(7,4,7,2,{castle:'Q'})
+      }
 
-            add(
-              y,x,
-              y+dy,
-              x+dx
-            )
-          }
-        }
-
-        if(side==='w'&&y===7&&x===4){
-          if(
-            s.castle.K&&
-            b[7][5]===null&&
-            b[7][6]===null&&
-            b[7][7]==='wR'&&
-            !inCheck(s,'w')&&
-            !attacked(s,7,5,'b')&&
-            !attacked(s,7,6,'b')
-          ){
-            add(
-              7,4,
-              7,6,
-              {castle:'K'}
-            )
-          }
-
-          if(
-            s.castle.Q&&
-            b[7][1]===null&&
-            b[7][2]===null&&
-            b[7][3]===null&&
-            b[7][0]==='wR'&&
-            !inCheck(s,'w')&&
-            !attacked(s,7,3,'b')&&
-            !attacked(s,7,2,'b')
-          ){
-            add(
-              7,4,
-              7,2,
-              {castle:'Q'}
-            )
-          }
-        }
-
-        if(side==='b'&&y===0&&x===4){
-          if(
-            s.castle.k&&
-            b[0][5]===null&&
-            b[0][6]===null&&
-            b[0][7]==='bR'&&
-            !inCheck(s,'b')&&
-            !attacked(s,0,5,'w')&&
-            !attacked(s,0,6,'w')
-          ){
-            add(
-              0,4,
-              0,6,
-              {castle:'k'}
-            )
-          }
-
-          if(
-            s.castle.q&&
-            b[0][1]===null&&
-            b[0][2]===null&&
-            b[0][3]===null&&
-            b[0][0]==='bR'&&
-            !inCheck(s,'b')&&
-            !attacked(s,0,3,'w')&&
-            !attacked(s,0,2,'w')
-          ){
-            add(
-              0,4,
-              0,2,
-              {castle:'q'}
-            )
-          }
-        }
+      if(side==='b'&&y===0&&x===4){
+        if(s.castle.k&&b[0][5]===null&&b[0][6]===null&&b[0][7]==='bR'&&!inCheck(s,'b')&&!attacked(s,0,5,'w')&&!attacked(s,0,6,'w'))add(0,4,0,6,{castle:'k'})
+        if(s.castle.q&&b[0][1]===null&&b[0][2]===null&&b[0][3]===null&&b[0][0]==='bR'&&!inCheck(s,'b')&&!attacked(s,0,3,'w')&&!attacked(s,0,2,'w'))add(0,4,0,2,{castle:'q'})
       }
     }
   }
-
   return out
 }
 
-function applyMove(s,m){
-  const n=clone(s)
+function applyMove(s,m,trackHistory=true){
+  const n=clone(s,trackHistory)
   const b=n.b
+  const piece=b[m.fy]?.[m.fx]
+  if(!piece)return n
 
-  const piece=b[m.fy][m.fx]
-  const captured=b[m.ty][m.tx]
-
+  let captured=b[m.ty][m.tx]
   b[m.fy][m.fx]=null
 
   if(m.ep){
-    const capY=
-      piece[0]==='w'
-        ? m.ty+1
-        : m.ty-1
-
-    b[capY][m.tx]=null
+    const capY=piece[0]==='w'?m.ty+1:m.ty-1
+    captured=b[capY]?.[m.tx]||captured
+    if(inside(capY,m.tx))b[capY][m.tx]=null
   }
 
-  b[m.ty][m.tx]=
-    m.promo
-      ? piece[0]+m.promo
-      : piece
+  const promo=normalizePromotion(m.promo)
+  b[m.ty][m.tx]=promo?piece[0]+promo:piece
 
-  if(m.castle==='K'){
-    b[7][5]=b[7][7]
-    b[7][7]=null
-  }
+  if(m.castle==='K'){b[7][5]=b[7][7];b[7][7]=null}
+  if(m.castle==='Q'){b[7][3]=b[7][0];b[7][0]=null}
+  if(m.castle==='k'){b[0][5]=b[0][7];b[0][7]=null}
+  if(m.castle==='q'){b[0][3]=b[0][0];b[0][0]=null}
 
-  if(m.castle==='Q'){
-    b[7][3]=b[7][0]
-    b[7][0]=null
-  }
-
-  if(m.castle==='k'){
-    b[0][5]=b[0][7]
-    b[0][7]=null
-  }
-
-  if(m.castle==='q'){
-    b[0][3]=b[0][0]
-    b[0][0]=null
-  }
-
-  if(piece==='wK'){
-    n.castle.K=false
-    n.castle.Q=false
-  }
-
-  if(piece==='bK'){
-    n.castle.k=false
-    n.castle.q=false
-  }
-
+  if(piece==='wK'){n.castle.K=false;n.castle.Q=false}
+  if(piece==='bK'){n.castle.k=false;n.castle.q=false}
   if(piece==='wR'){
     if(m.fy===7&&m.fx===0)n.castle.Q=false
     if(m.fy===7&&m.fx===7)n.castle.K=false
   }
-
   if(piece==='bR'){
     if(m.fy===0&&m.fx===0)n.castle.q=false
     if(m.fy===0&&m.fx===7)n.castle.k=false
   }
-
   if(captured==='wR'){
     if(m.ty===7&&m.tx===0)n.castle.Q=false
     if(m.ty===7&&m.tx===7)n.castle.K=false
   }
-
   if(captured==='bR'){
     if(m.ty===0&&m.tx===0)n.castle.q=false
     if(m.ty===0&&m.tx===7)n.castle.k=false
   }
 
   n.ep=null
-
-  if(
-    piece[1]==='P'&&
-    Math.abs(
-      m.ty-m.fy
-    )===2
-  ){
-    n.ep={
-      y:(m.ty+m.fy)/2,
-      x:m.fx
-    }
+  if(piece[1]==='P'&&Math.abs(m.ty-m.fy)===2){
+    n.ep={y:(m.ty+m.fy)/2,x:m.fx}
   }
 
-  n.turn=
-    enemy(s.turn)
+  n.halfmove=(piece[1]==='P'||captured)?0:(Number(s.halfmove)||0)+1
+  n.fullmove=(Number(s.fullmove)||1)+(s.turn==='b'?1:0)
+  n.turn=enemy(s.turn)
 
+  if(trackHistory){
+    n.history=Array.isArray(n.history)?n.history.slice():[]
+    n.history.push(positionKey(n))
+  }
   return n
 }
 
 function legalMoves(s){
   const side=s.turn
-
-  return pseudoMoves(s)
-    .filter(
-      m=>{
-        const n=
-          applyMove(s,m)
-
-        return !inCheck(
-          n,
-          side
-        )
-      }
-    )
+  return pseudoMoves(s).filter(m=>!inCheck(applyMove(s,m,false),side))
 }
 
 function capturedByMove(s,m){
   if(m.ep)return true
-  return Boolean(
-    s.b[m.ty][m.tx]
-  )
+  return Boolean(s.b[m.ty][m.tx])
+}
+
+function insufficientMaterial(s){
+  const pieces=[]
+  for(let y=0;y<8;y++)for(let x=0;x<8;x++){
+    const p=s.b[y][x]
+    if(!p||p[1]==='K')continue
+    if(['P','R','Q'].includes(p[1]))return false
+    pieces.push({p,y,x})
+  }
+
+  if(pieces.length===0)return true
+  if(pieces.length===1)return ['B','N'].includes(pieces[0].p[1])
+
+  // Jika semua material selain raja hanya bishop dan seluruh bishop
+  // berdiri pada warna petak yang sama, checkmate tidak mungkin tercapai.
+  if(pieces.every(v=>v.p[1]==='B')){
+    const colors=new Set(pieces.map(v=>(v.y+v.x)&1))
+    if(colors.size===1)return true
+  }
+  return false
+}
+
+function repetitionCount(s){
+  const key=positionKey(s)
+  let count=0
+  for(const item of Array.isArray(s.history)?s.history:[]){
+    if(item===key)count++
+  }
+  return count
+}
+
+function drawReason(s){
+  if(insufficientMaterial(s))return'material'
+  if((Number(s.halfmove)||0)>=100)return'50move'
+  if(repetitionCount(s)>=3)return'threefold'
+  return null
 }
 
 function terminal(s){
-  const moves=
-    legalMoves(s)
-
-  if(moves.length){
-    return null
+  const moves=legalMoves(s)
+  if(!moves.length){
+    if(inCheck(s,s.turn))return{type:'mate',loser:s.turn}
+    return{type:'draw',reason:'stalemate'}
   }
 
-  if(inCheck(s,s.turn)){
-    return{
-      type:'mate',
-      loser:s.turn
-    }
-  }
-
-  return{
-    type:'draw'
-  }
+  const reason=drawReason(s)
+  if(reason)return{type:'draw',reason}
+  return null
 }
+
 
 /* =======================
    AI
@@ -1406,9 +1175,10 @@ function search(
         ? -100000-depth
         : 100000+depth
     }
-
     return 0
   }
+
+  if(drawReason(s))return 0
 
   if(depth===0){
     return evaluate(s)
@@ -1760,9 +1530,16 @@ function setStatus(){
     setTimeout(()=>showMenu('Game selesai. Pilih mode untuk bermain lagi.'),2500)
 
     if(t.type==='draw'){
-      statusEl.textContent='DRAW • Stalemate'
-      detailEl.textContent='Tidak ada langkah legal.'
-      if(currentMode==='multi')reportResult('draw')
+      const drawText={
+        stalemate:['DRAW • STALEMATE','Tidak ada langkah legal.'],
+        material:['DRAW • MATERIAL KURANG','Checkmate tidak mungkin dengan material yang tersisa.'],
+        '50move':['DRAW • 50-MOVE RULE','100 half-move tanpa pawn move atau capture.'],
+        threefold:['DRAW • THREEFOLD','Posisi yang sama muncul tiga kali.']
+      }
+      const info=drawText[t.reason]||['DRAW','Permainan berakhir remis.']
+      statusEl.textContent=info[0]
+      detailEl.textContent=info[1]
+      reportResult('draw')
     }else{
       const winner=t.loser==='w'?'b':'w'
 
@@ -1833,7 +1610,7 @@ function doHumanMove(m){
     matchSocket.send(JSON.stringify({
       type:'move',
       seq:moveSeq,
-      move:{fy:m.fy,fx:m.fx,ty:m.ty,tx:m.tx}
+      move:{fy:m.fy,fx:m.fx,ty:m.ty,tx:m.tx,promo:m.promo||null}
     }))
     return
   }
@@ -1898,6 +1675,28 @@ function aiTurn(){
   setStatus()
 }
 
+function hidePromotion(){
+  pendingPromotionMoves=null
+  promotionScreen.classList.add('hidden')
+}
+
+function requestPromotion(moves){
+  pendingPromotionMoves=Array.isArray(moves)?moves.slice():null
+  promotionScreen.classList.remove('hidden')
+}
+
+promotionButtons.forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const promo=normalizePromotion(btn.dataset.promo)
+    const move=(pendingPromotionMoves||[]).find(m=>normalizePromotion(m.promo)===promo)
+    if(!move)return
+    hidePromotion()
+    doHumanMove(move)
+  })
+})
+
+promotionCancel.addEventListener('click',hidePromotion)
+
 canvas.addEventListener(
   'pointerdown',
   e=>{
@@ -1916,15 +1715,11 @@ canvas.addEventListener(
       x
     }=coordsFromEvent(e)
 
-    const chosen=
-      options.find(
-        m=>
-          m.ty===y&&
-          m.tx===x
-      )
+    const choices=options.filter(m=>m.ty===y&&m.tx===x)
 
-    if(chosen){
-      doHumanMove(chosen)
+    if(choices.length){
+      if(choices.length>1&&choices.some(m=>m.promo))requestPromotion(choices)
+      else doHumanMove(choices[0])
       return
     }
 
@@ -1965,6 +1760,7 @@ function restart(){
   pendingMove=false
   resultSent=false
   moveSeq=0
+  hidePromotion()
   if(matchSocket){try{matchSocket.close()}catch{};matchSocket=null}
 
   game=newState()
@@ -1997,12 +1793,15 @@ function restart(){
 }
 
 function resolveNetworkMove(entry){
-  return legalMoves(game).find(m=>
+  const candidates=legalMoves(game).filter(m=>
     m.fy===Number(entry.fy)&&
     m.fx===Number(entry.fx)&&
     m.ty===Number(entry.ty)&&
     m.tx===Number(entry.tx)
-  )||null
+  )
+  const promo=normalizePromotion(entry.promo)
+  if(promo)return candidates.find(m=>normalizePromotion(m.promo)===promo)||null
+  return candidates.find(m=>!m.promo)||candidates.find(m=>m.promo==='Q')||candidates[0]||null
 }
 
 function applyNetworkMove(entry){
@@ -2048,10 +1847,38 @@ function replayMoves(moves=[]){
   setStatus()
 }
 
-function reportResult(result){
-  if(currentMode!=='multi'||resultSent||!matchSocket||matchSocket.readyState!==1)return
+function reportResult(){
+  // Multiplayer v6: hasil final ditentukan Worker dari posisi legal,
+  // bukan klaim client. Ini mencegah client mengirim hasil palsu.
   resultSent=true
-  try{matchSocket.send(JSON.stringify({type:'result',result}))}catch{}
+}
+
+function handleServerResult(result,reason){
+  if(ended&&reason!=='resign')return
+  if(reason!=='resign'){
+    setStatus()
+    return
+  }
+
+  ended=true
+  thinking=false
+  pendingMove=false
+  newBtn.textContent='KEMBALI KE MENU'
+  newBtn.disabled=false
+  const won=(result==='white'&&playerColor==='w')||(result==='black'&&playerColor==='b')
+  if(result==='draw'){
+    statusEl.textContent='DRAW'
+    detailEl.textContent='Match berakhir remis.'
+  }else if(won){
+    statusEl.textContent='KAMU MENANG 🏆'
+    detailEl.textContent='Lawan menyerah.'
+    soundWin()
+  }else{
+    statusEl.textContent='KAMU KALAH'
+    detailEl.textContent='Match selesai.'
+    soundLose()
+  }
+  setTimeout(()=>showMenu('Game selesai. Pilih mode untuk bermain lagi.'),2500)
 }
 
 function connectMatch(){
@@ -2067,16 +1894,26 @@ function connectMatch(){
   statusEl.textContent='Menghubungkan match...'
   render()
 
-  if(!NEXA_CONFIG.wsUrl||!NEXA_CONFIG.matchToken){
+  if(!SOCKET_URL||!NEXA_CONFIG.matchToken){
     statusEl.textContent='❌ Konfigurasi multiplayer tidak lengkap.'
     return
   }
 
   try{
-    const ws=new WebSocket(NEXA_CONFIG.wsUrl)
+    const ws=new WebSocket(SOCKET_URL)
     matchSocket=ws
+    let opened=false
+    const connectTimer=setTimeout(()=>{
+      if(matchSocket===ws&&!opened&&ws.readyState===0){
+        statusEl.textContent=`❌ Timeout WebSocket • ${socketLabel()}`
+        try{ws.close()}catch{}
+      }
+    },9000)
 
     ws.onopen=()=>{
+      opened=true
+      clearTimeout(connectTimer)
+      statusEl.textContent='Mengautentikasi match...'
       ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.matchToken}))
     }
 
@@ -2086,12 +1923,16 @@ function connectMatch(){
 
       if(data.type==='state'){
         connected=true
+        pendingMove=false
         playerColor=data.color==='b'?'b':'w'
         flipped=playerColor==='b'
         youColorEl.textContent=playerColor==='w'?'WHITE ♙':'BLACK ♟'
         NEXA_CONFIG.opponentName=data.opponentName||NEXA_CONFIG.opponentName
         replayMoves(Array.isArray(data.moves)?data.moves:[])
         detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName||'Player'} • multiplayer real-time`
+        if(data.status==='finished'&&data.result){
+          handleServerResult(data.result,data.terminalReason)
+        }
         return
       }
 
@@ -2100,7 +1941,9 @@ function connectMatch(){
           ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.matchToken}))
           return
         }
-        applyNetworkMove(data.move||{})
+        if(!applyNetworkMove(data.move||{})){
+          ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.matchToken}))
+        }
         return
       }
 
@@ -2110,33 +1953,46 @@ function connectMatch(){
       }
 
       if(data.type==='result'){
-        // Posisi lokal sudah menentukan hasil. Pesan ini hanya finalisasi server.
+        handleServerResult(data.result,data.reason)
         return
       }
 
       if(data.type==='error'){
         pendingMove=false
-        statusEl.textContent='⚠️ '+(data.code||'Server menolak aksi.')
+        const map={
+          NOT_YOUR_TURN:'Belum giliran kamu.',
+          ILLEGAL_MOVE:'Langkah ditolak: tidak legal.',
+          MATCH_STATE_CORRUPT:'State match rusak. Buka .catur baru.',
+          MATCH_NOT_ACTIVE:'Match sudah tidak aktif.',
+          INVALID_TOKEN:'Sesi match sudah kedaluwarsa.'
+        }
+        statusEl.textContent='⚠️ '+(map[data.code]||data.code||'Server menolak aksi.')
+        if(data.code==='ILLEGAL_MOVE'||data.code==='NOT_YOUR_TURN'){
+          try{ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.matchToken}))}catch{}
+        }
       }
     }
 
     ws.onerror=()=>{
       if(matchSocket!==ws)return
+      clearTimeout(connectTimer)
       connected=false
-      statusEl.textContent='❌ Koneksi multiplayer bermasalah.'
+      statusEl.textContent=`❌ WebSocket error • ${socketLabel()}`
     }
 
-    ws.onclose=()=>{
+    ws.onclose=e=>{
+      clearTimeout(connectTimer)
       if(matchSocket!==ws)return
       matchSocket=null
       connected=false
       if(!ended){
-        statusEl.textContent='Koneksi terputus. Mencoba sambung ulang...'
-        setTimeout(()=>{if(!ended&&!matchSocket)connectMatch()},1200)
+        const code=Number(e?.code)||1006
+        statusEl.textContent=`Koneksi putus (${code}). Mencoba sambung ulang...`
+        setTimeout(()=>{if(!ended&&!matchSocket)connectMatch()},1400)
       }
     }
   }catch{
-    statusEl.textContent='❌ WebSocket multiplayer tidak tersedia.'
+    statusEl.textContent=`❌ WebSocket tidak tersedia • ${socketLabel()}`
   }
 }
 
@@ -2159,9 +2015,9 @@ function configureMultiplayerButton(){
     return
   }
 
-  if(!NEXA_CONFIG.multiplayerReady||!NEXA_CONFIG.wsUrl||!NEXA_CONFIG.menuToken){
+  if(!NEXA_CONFIG.multiplayerReady||!SOCKET_URL||!NEXA_CONFIG.menuToken){
     multiMode.disabled=true
-    multiModeInfo.textContent='Server multiplayer belum aktif.'
+    multiModeInfo.textContent=NEXA_CONFIG.multiplayerIssue?'Server multiplayer config error.':'Server multiplayer belum aktif.'
     return
   }
 
@@ -2170,6 +2026,7 @@ function configureMultiplayerButton(){
 }
 
 function showMenu(message='Pilih salah satu mode.'){
+  hidePromotion()
   document.body.classList.add('menu-open')
   thinking=false
   selected=null
@@ -2203,6 +2060,30 @@ function showMultiplayerMenu(){
   menuStatus.textContent='Buat room atau masukkan Room ID.'
 }
 
+function normalizeClientWsUrl(value){
+  let raw=String(value||'').trim()
+  if(!raw)return''
+  if(raw.startsWith('https://'))raw='wss://'+raw.slice(8)
+  else if(raw.startsWith('http://'))raw='ws://'+raw.slice(7)
+  try{
+    const url=new URL(raw)
+    if(url.protocol!=='wss:'&&url.protocol!=='ws:')return''
+    url.pathname='/chess'
+    url.search=''
+    url.hash=''
+    return url.toString().replace(/\/$/,'')
+  }catch{return''}
+}
+
+const SOCKET_URL=normalizeClientWsUrl(NEXA_CONFIG.wsUrl)
+
+function socketLabel(){
+  try{
+    const u=new URL(SOCKET_URL)
+    return u.host+u.pathname
+  }catch{return'endpoint tidak valid'}
+}
+
 function normalizeRoomInput(){
   roomInput.value=String(roomInput.value||'')
     .toUpperCase()
@@ -2223,7 +2104,7 @@ function beginMatchedGame(data){
 }
 
 function openRoomSocket(action){
-  if(!NEXA_CONFIG.wsUrl||!NEXA_CONFIG.menuToken){
+  if(!SOCKET_URL||!NEXA_CONFIG.menuToken){
     menuStatus.textContent='Server multiplayer belum tersedia.'
     return
   }
@@ -2233,14 +2114,28 @@ function openRoomSocket(action){
     menuSocket=null
   }
 
-  menuStatus.textContent='Menghubungkan ke server multiplayer...'
+  menuStatus.textContent=`Menghubungkan... • ${socketLabel()}`
 
   try{
-    const ws=new WebSocket(NEXA_CONFIG.wsUrl)
+    const ws=new WebSocket(SOCKET_URL)
     menuSocket=ws
     let actionSent=false
+    let opened=false
+    let matched=false
+    let intentionalClose=false
+
+    const connectTimer=setTimeout(()=>{
+      if(menuSocket===ws&&!opened&&ws.readyState===0){
+        menuStatus.textContent=`❌ Timeout WebSocket • ${socketLabel()}`
+        intentionalClose=true
+        try{ws.close()}catch{}
+      }
+    },9000)
 
     ws.onopen=()=>{
+      opened=true
+      clearTimeout(connectTimer)
+      menuStatus.textContent=`WSS OPEN ✅ • autentikasi...`
       ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.menuToken}))
     }
 
@@ -2270,6 +2165,7 @@ function openRoomSocket(action){
       }
 
       if(data.type==='room_cancelled'){
+        intentionalClose=true
         try{ws.close()}catch{}
         setMenuPanel('room')
         menuStatus.textContent='Room dibatalkan.'
@@ -2277,6 +2173,7 @@ function openRoomSocket(action){
       }
 
       if(data.type==='match_ready'){
+        matched=true
         menuStatus.textContent='✅ Lawan ditemukan. Menyiapkan papan...'
         beginMatchedGame(data)
         return
@@ -2290,21 +2187,28 @@ function openRoomSocket(action){
           ROOM_ALREADY_OPEN:'Kamu masih punya room aktif. Batalkan dulu room lama.',
           CANNOT_JOIN_SELF:'Kamu tidak bisa join room milik sendiri.',
           HOST_OFFLINE:'Pemilik room sudah tidak menunggu. Minta dia buka room lagi.',
-          INVALID_TOKEN:'Sesi catur sudah kedaluwarsa. Jalankan .catur lagi.'
+          INVALID_TOKEN:'Sesi catur kedaluwarsa / secret tidak cocok. Jalankan .catur baru.'
         }
         menuStatus.textContent='⚠️ '+(map[data.code]||data.code||'Aksi multiplayer gagal.')
       }
     }
 
     ws.onerror=()=>{
-      menuStatus.textContent='❌ Gagal terhubung ke server multiplayer.'
+      clearTimeout(connectTimer)
+      if(menuSocket!==ws||matched)return
+      menuStatus.textContent=`❌ WebSocket error • ${socketLabel()}`
     }
 
-    ws.onclose=()=>{
+    ws.onclose=e=>{
+      clearTimeout(connectTimer)
       if(menuSocket===ws)menuSocket=null
+      if(intentionalClose||matched)return
+      const code=Number(e?.code)||1006
+      const reason=String(e?.reason||'').trim()
+      menuStatus.textContent=`❌ WSS tertutup (${code})${reason?' • '+reason:''} • ${socketLabel()}`
     }
   }catch{
-    menuStatus.textContent='❌ WebSocket multiplayer tidak tersedia.'
+    menuStatus.textContent=`❌ WebSocket tidak tersedia • ${socketLabel()}`
   }
 }
 

@@ -82,17 +82,24 @@ export default {
 
     const isGroup = String(jid).endsWith('@g.us')
     const wsUrl = getChessPublicWsUrl()
-    const multiplayerReady =
+    let multiplayerReady =
       !isGroup && registered && chessMultiplayerConfigured()
 
     let menuToken = null
+    let multiplayerIssue = null
     if (multiplayerReady) {
-      const menu = createChessMenuSession({
-        chatJid: jid,
-        playerJid,
-        registrationVerified: registered
-      })
-      menuToken = menu.token
+      try {
+        const menu = createChessMenuSession({
+          chatJid: jid,
+          playerJid,
+          registrationVerified: registered
+        })
+        menuToken = menu.token
+      } catch (err) {
+        multiplayerReady = false
+        multiplayerIssue = String(err?.message || err || 'CHESS_SESSION_ERROR')
+        console.error('♟️ NEXA Chess multiplayer session:', err)
+      }
     }
 
     const html = injectConfig(
@@ -102,15 +109,22 @@ export default {
         menuToken,
         multiplayerReady,
         isGroup,
-        registered
+        registered,
+        multiplayerIssue
       }
     )
 
     try {
+      const trustedSources = ['nexa.local']
+      try {
+        const host = wsUrl ? new URL(wsUrl).hostname : ''
+        if (host && !trustedSources.includes(host)) trustedSources.push(host)
+      } catch {}
+
       await sendHtmlApp(sock, jid, html, {
         title: '⚡ NEXA ARCADE',
         label: '♟️ NEXA CHESS • Android Only',
-        trustedSources: ['nexa.local'],
+        trustedSources,
         height: 610
       })
     } catch (err) {
