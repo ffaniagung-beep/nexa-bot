@@ -1925,65 +1925,59 @@ function randomText(len=8){
   return out
 }
 
-function realtimeSocketUrl(){
+function gatewaySocketUrl(){
   try{
-    const base=new URL(String(NEXA_CONFIG.supabaseUrl||'').trim())
-    base.protocol=base.protocol==='http:'?'ws:':'wss:'
-    base.pathname='/realtime/v1/websocket'
-    base.search=''
-    base.searchParams.set('apikey',String(NEXA_CONFIG.supabaseKey||''))
-    base.searchParams.set('vsn','1.0.0')
-    return base.toString()
+    const raw=String(NEXA_CONFIG.gatewayWsUrl||'').trim()
+    if(!raw)return''
+    const u=new URL(raw)
+    u.protocol=u.protocol==='http:'?'ws:':u.protocol==='https:'?'wss:':u.protocol
+    if(u.protocol!=='ws:'&&u.protocol!=='wss:')return''
+    u.pathname='/api/ws'
+    u.search=''
+    u.hash=''
+    return u.toString()
   }catch{return''}
 }
 
-const REALTIME_URL=realtimeSocketUrl()
+const GATEWAY_URL=gatewaySocketUrl()
 
 function socketLabel(){
   try{
-    const u=new URL(REALTIME_URL)
-    return u.host+'/realtime/v1/websocket'
-  }catch{return'endpoint Supabase tidak valid'}
+    const u=new URL(GATEWAY_URL)
+    return u.host+'/api/ws'
+  }catch{return'gateway Vercel tidak valid'}
 }
 
 class NexaRealtimeChannel{
   constructor(topic,onBroadcast,onReady,onState){
-    this.topic='realtime:'+topic
+    this.topic=topic
     this.onBroadcast=onBroadcast
     this.onReady=onReady
     this.onState=onState
     this.ws=null
     this.joined=false
     this.closed=false
-    this.ref=0
-    this.joinRef=''
     this.heartbeat=null
     this.reconnect=null
+    this.reconnectDelay=1000
   }
 
-  nextRef(){this.ref++;return String(this.ref)}
   ready(){return !!(this.joined&&this.ws&&this.ws.readyState===1)}
 
-  sendFrame(event,payload={},ref=null,topic=null,joinRef=undefined){
+  send(obj){
     if(!this.ws||this.ws.readyState!==1)return false
     try{
-      this.ws.send(JSON.stringify({
-        topic:topic||this.topic,
-        event,
-        payload,
-        ref:ref||this.nextRef(),
-        join_ref:joinRef===undefined?this.joinRef:joinRef
-      }))
+      this.ws.send(JSON.stringify(obj))
       return true
     }catch{return false}
   }
 
   connect(){
-    if(this.closed||!REALTIME_URL)return
+    if(this.closed||!GATEWAY_URL)return
     this.joined=false
     this.onState&&this.onState('connecting')
     try{
-      const ws=new WebSocket(REALTIME_URL)
+      const ws=new WebSocket(GATEWAY_URL)
       this.ws=ws
       const timeout=setTimeout(()=>{
         if(this.ws===ws&&ws.readyState===0){try{ws.close()}catch{}}
@@ -1993,19 +1987,12 @@ class NexaRealtimeChannel{
         clearTimeout(timeout)
         if(this.ws!==ws||this.closed)return
         this.onState&&this.onState('open')
-        this.joinRef=this.nextRef()
-        this.sendFrame('phx_join',{
-          config:{
-            broadcast:{ack:true,self:false},
-            presence:{enabled:false},
-            postgres_changes:[],
-            private:true
-          },
-          access_token:String(NEXA_CONFIG.accessToken||'')
-        },this.joinRef,this.topic,this.joinRef)
-        this.heartbeat=setInterval(()=>{
-          this.sendFrame('heartbeat',{},this.nextRef(),'phoenix',null)
-        },25000)
+        this.send({
+          type:'auth',
+          accessToken:String(NEXA_CONFIG.accessToken||''),
+          topic:this.topic
+        })
+        this.heartbeat=setInterval(()=>this.send({type:'ping'}),20000)
       }
 
       ws.onmessage=e=>{
@@ -2013,27 +2000,24 @@ class NexaRealtimeChannel{
         try{msg=JSON.parse(e.data)}catch{return}
         if(!msg)return
 
-        if(msg.event==='phx_reply'&&String(msg.ref||'')===String(this.joinRef)){
-          if(msg.payload?.status==='ok'){
-            this.joined=true
-            this.onState&&this.onState('joined')
-            this.onReady&&this.onReady()
-          }else{
-            this.onState&&this.onState('auth_error',msg.payload?.response||msg.payload)
-          }
+        if(msg.type==='ready'){
+          this.joined=true
+          this.reconnectDelay=1000
+          this.onState&&this.onState('joined')
+          this.onReady&&this.onReady()
           return
         }
 
-        if(msg.event==='broadcast'){
-          const packet=msg.payload||{}
-          const event=packet.event||packet.type||''
-          const payload=packet.payload||packet
-          this.onBroadcast&&this.onBroadcast(event,payload)
+        if(msg.type==='broadcast'){
+          this.onBroadcast&&this.onBroadcast(String(msg.event||''),msg.payload||{})
           return
         }
 
-        if(msg.event==='phx_error'){
-          this.onState&&this.onState('channel_error',msg.payload)
+        if(msg.type==='error'){
+          this.onState&&this.onState('auth_error',{
+            reason:String(msg.error||msg.detail||'Gateway menolak koneksi')
+          })
+          return
         }
       }
 
@@ -2052,16 +2036,18 @@ class NexaRealtimeChannel{
         if(this.closed)return
         this.onState&&this.onState('closed',{code:Number(e?.code)||1006,reason:String(e?.reason||'')})
         clearTimeout(this.reconnect)
-        this.reconnect=setTimeout(()=>this.connect(),1200)
+        const delay=this.reconnectDelay
+        this.reconnectDelay=Math.min(this.reconnectDelay*2,8000)
+        this.reconnect=setTimeout(()=>this.connect(),delay)
       }
-    }catch{
-      this.onState&&this.onState('error')
+    }catch(err){
+      this.onState&&this.onState('error',{reason:String(err?.message||err||'')})
       if(!this.closed)this.reconnect=setTimeout(()=>this.connect(),1500)
     }
   }
 
   broadcast(event,payload){
-    return this.sendFrame('broadcast',{type:'broadcast',event,payload})
+    return this.send({type:'broadcast',event,payload})
   }
 
   close(){
@@ -2101,7 +2087,7 @@ function connectMatch(){
   playerColor=NEXA_CONFIG.playerColor==='b'?'b':'w'
   flipped=playerColor==='b'
   youColorEl.textContent=playerColor==='w'?'WHITE ♙':'BLACK ♟'
-  detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName||'Player'} • Supabase Realtime`
+  detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName||'Player'} • Vercel + Supabase Realtime`
   newBtn.textContent='GAME AKTIF'
   newBtn.disabled=true
   menuScreen.classList.add('hidden')
@@ -2130,14 +2116,14 @@ function configureMultiplayerButton(){
     return
   }
 
-  if(!NEXA_CONFIG.multiplayerReady||!REALTIME_URL||!NEXA_CONFIG.accessToken||!NEXA_CONFIG.sessionId){
+  if(!NEXA_CONFIG.multiplayerReady||!GATEWAY_URL||!NEXA_CONFIG.accessToken||!NEXA_CONFIG.sessionId){
     multiMode.disabled=true
     multiModeInfo.textContent=NEXA_CONFIG.multiplayerIssue?'Supabase/Vercel config error.':'Server multiplayer belum aktif.'
     return
   }
 
   multiMode.disabled=false
-  multiModeInfo.textContent='Main real-time via Supabase + Vercel dengan Room ID.'
+  multiModeInfo.textContent='Main real-time via Vercel Gateway + Supabase dengan Room ID.'
 }
 
 function showMenu(message='Pilih salah satu mode.'){
@@ -2184,12 +2170,12 @@ function normalizeRoomInput(){
 
 function onRealtimeState(state,detail){
   if(state==='connecting'){
-    if(currentMode==='multi')statusEl.textContent='Menghubungkan Supabase...'
-    else menuStatus.textContent=`Menghubungkan Supabase... • ${socketLabel()}`
+    if(currentMode==='multi')statusEl.textContent='Menghubungkan Vercel Gateway...'
+    else menuStatus.textContent=`Menghubungkan Vercel Gateway... • ${socketLabel()}`
     return
   }
   if(state==='open'){
-    if(currentMode!=='multi')menuStatus.textContent='WSS OPEN ✅ • autentikasi private channel...'
+    if(currentMode!=='multi')menuStatus.textContent='WSS OPEN ✅ • gateway menghubungkan Supabase...'
     return
   }
   if(state==='joined'){
@@ -2202,13 +2188,13 @@ function onRealtimeState(state,detail){
   }
   if(state==='auth_error'){
     const reason=String(detail?.reason||detail?.message||detail?.status||'RLS/JWT ditolak')
-    if(currentMode==='multi')statusEl.textContent='❌ Supabase auth error • '+reason
-    else menuStatus.textContent='❌ Supabase auth error • '+reason
+    if(currentMode==='multi')statusEl.textContent='❌ Gateway/Supabase auth error • '+reason
+    else menuStatus.textContent='❌ Gateway/Supabase auth error • '+reason
     return
   }
   if(state==='error'){
-    if(currentMode==='multi')statusEl.textContent=`❌ WebSocket Supabase error • ${socketLabel()}`
-    else menuStatus.textContent=`❌ WebSocket Supabase error • ${socketLabel()}`
+    if(currentMode==='multi')statusEl.textContent=`❌ WebSocket Vercel error • ${socketLabel()}`
+    else menuStatus.textContent=`❌ WebSocket Vercel error • ${socketLabel()}`
     return
   }
   if(state==='closed'){
@@ -2326,7 +2312,7 @@ function onRoomBroadcast(_event,data){
 }
 
 function openRoomChannel(mode,id){
-  if(!REALTIME_URL||!NEXA_CONFIG.accessToken||!NEXA_CONFIG.sessionId){
+  if(!GATEWAY_URL||!NEXA_CONFIG.accessToken||!NEXA_CONFIG.sessionId){
     menuStatus.textContent='Supabase/Vercel belum dikonfigurasi.'
     return
   }

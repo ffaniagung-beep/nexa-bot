@@ -1,0 +1,30 @@
+NEXA Chess V9 - Vercel WebSocket Gateway + Supabase Realtime
+
+Why:
+- Supabase anonymous auth/session is working.
+- WhatsApp mini-app fails when opening Supabase Realtime WebSocket directly.
+- V9 changes the browser transport to:
+  WhatsApp mini-app -> Vercel /api/ws -> Supabase Realtime
+- Supabase remains the cross-instance realtime pub/sub layer.
+
+No new environment variables are required.
+Vercel keeps:
+  NEXA_CHESS_API_SECRET
+  SUPABASE_URL
+  SUPABASE_PUBLISHABLE_KEY
+  SUPABASE_SECRET_KEY
+
+Pterodactyl only needs for chess transport:
+  NEXA_CHESS_VERCEL_URL
+  NEXA_CHESS_API_SECRET
+Old NEXA_SUPABASE_* variables may remain; V9 no longer requires them on Ptero.
+
+IMPORTANT after extracting in Termux:
+  cd ~/wa-bot/vercel-chess
+  rm -f package-lock.json
+  npm install --package-lock-only --ignore-scripts
+
+Then commit/push so Vercel redeploys.
+
+Vercel /api/ws uses WebSocket support and maxDuration 300 seconds (Hobby-compatible).
+The mini-app reconnects automatically when a Vercel WebSocket function rotates/expires.

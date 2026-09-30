@@ -100,9 +100,9 @@ export default {
     const html = injectConfig(
       fs.readFileSync(GAME_FILE, 'utf8'),
       {
-        transport: 'supabase-realtime-v1',
-        supabaseUrl: realtime.supabaseUrl,
-        supabaseKey: realtime.supabaseKey,
+        transport: 'vercel-ws-supabase-v2',
+        gatewayWsUrl: realtime.gatewayWsUrl,
+        vercelUrl: realtime.vercelUrl,
         accessToken: session?.accessToken || null,
         sessionId: session?.sessionId || null,
         sessionExpiresAt: session?.expiresAt || null,
@@ -118,7 +118,7 @@ export default {
     try {
       const trustedSources = ['nexa.local']
       try {
-        const host = realtime.supabaseUrl ? new URL(realtime.supabaseUrl).hostname : ''
+        const host = realtime.vercelUrl ? new URL(realtime.vercelUrl).hostname : ''
         if (host && !trustedSources.includes(host)) trustedSources.push(host)
       } catch {}
 
