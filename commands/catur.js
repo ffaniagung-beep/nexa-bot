@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 
-import { MB } from '@rexxhayanasi/elaina-baileys'
+import { sendHtmlApp as sendTrustedHtmlApp } from '@yudzxml/baileys'
 
 import { getUser } from '../lib/userdb.js'
 import { getProfileJid, resolveProfileJid } from '../lib/profile.js'
@@ -28,23 +28,24 @@ async function sendTrustedChessApp(sock, jid, html, { origin, title, height = 61
     throw new Error('CHESS_TRUSTED_ORIGIN_REQUIRES_HTTPS')
   }
 
-  const trustedSources = ['nexa.local', parsed.hostname].filter(Boolean)
-  const section = MB.htmlSection(html, { trustedSources, height })
-  const primitive = section?.view_model?.primitive
-
-  if (!primitive || typeof primitive !== 'object') {
-    throw new Error('CHESS_HTML_PRIMITIVE_NOT_FOUND')
-  }
-
-  // Elaina 1.4.2 normally sends HTML mini-apps on an opaque about:blank
-  // origin. WhatsApp Android also understands a `url` field on the HTML
-  // primitive. Supplying our HTTPS Vercel origin gives the embedded WebView
-  // a real base origin while keeping the game inside the WhatsApp bubble.
-  primitive.url = `${parsed.origin}/`
-
-  const rich = new MB.AIRich(sock).setTitle(title || '⚡ NEXA ARCADE')
-  rich.addSection(section, { id: 'nexa-chess-app' })
-  return rich.send(jid)
+  // IMPORTANT:
+  // Elaina 1.4.2's sendHtmlApp/htmlSection only emits payload + trusted_sources.
+  // It does NOT expose the newer trusted-origin `url`/embedded wire fields, so
+  // manually attaching primitive.url was ignored by WhatsApp (origin stayed
+  // `null • about:`). @yudzxml/baileys MessageBuilder 4.7 emits the proven
+  // trusted-origin shape natively while still accepting the existing Baileys
+  // socket object.
+  return sendTrustedHtmlApp(sock, jid, html, {
+    title: title || '⚡ NEXA ARCADE',
+    label: '♟️ NEXA CHESS • Android Only',
+    height,
+    url: `${parsed.origin}/`,
+    trustedSources: [parsed.hostname],
+    embedded: true,
+    screenTitle: 'NEXA CHESS',
+    tabHeader: '♟️ Chess',
+    bypassDownload: false
+  })
 }
 
 function injectConfig(html, config) {

@@ -1,0 +1,24 @@
+NEXA Chess V12 — real trusted-origin sender
+
+Why V11 failed:
+- @rexxhayanasi/elaina-baileys 1.4.2 documents sendHtmlApp/htmlSection with
+  payload + trustedSources only.
+- V11 manually added primitive.url, but WhatsApp still reported:
+  origin null • about:
+- So that field was not being emitted/handled in the proven trusted-origin
+  wire shape by the Elaina helper.
+
+V12:
+- Keeps the existing NEXA/Elaina socket for the whole bot.
+- Uses @yudzxml/baileys ONLY for sendHtmlApp in commands/catur.js.
+- Its MessageBuilder 4.7 supports url + embedded trusted-origin mini apps.
+- Multiplayer remains inside WhatsApp.
+- Existing V9 Vercel WebSocket gateway + Supabase backend stay unchanged.
+- Room copy button from V11 stays in arcade/chess.html; no HTML replacement is
+  needed if V11 is already installed.
+
+Install in Termux after extracting:
+  cd ~/wa-bot
+  npm install @yudzxml/baileys@7.6.0 --save
+
+Then commit package.json, package-lock.json and commands/catur.js.
