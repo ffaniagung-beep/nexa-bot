@@ -1,0 +1,18 @@
+NEXA Chess V7 — Supabase + Vercel migration
+
+Changed:
+- Removed Cloudflare Worker transport from catur client.
+- Multiplayer WebSocket now connects directly to Supabase Realtime private Broadcast channels.
+- Vercel issues short-lived Supabase-compatible JWTs server-to-server.
+- Room IDs remain 8-character one-time-per-open random codes.
+- Match color is randomized; each player keeps own side at bottom.
+- Automatic reconnect + move-history resync.
+- V6 chess rules/engine retained: check/checkmate/stalemate, castling,
+  en passant, Q/R/B/N promotion, threefold repetition, 50-move rule,
+  insufficient material.
+
+New folders:
+- vercel-chess/
+- supabase-chess/
+
+Old cloudflare-chess/ is no longer referenced by V7.

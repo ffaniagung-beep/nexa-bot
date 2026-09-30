@@ -603,12 +603,20 @@ let thinking=false
 // playerColor === 'b'
 let playerColor=NEXA_CONFIG.playerColor==='b'?'b':'w'
 const aiColor='b'
-let currentMode='multi'
+let currentMode='menu'
 let connected=false
-let matchSocket=null
+let roomChannel=null
 let pendingMove=false
 let moveSeq=0
 let resultSent=false
+let networkMoves=[]
+let roomId=''
+let matchId=''
+let hostMode=false
+let roomStarted=false
+let opponentSessionId=''
+let roomRetryTimer=null
+let roomHeartbeatTimer=null
 
 let flipped=
   playerColor==='b'
@@ -619,7 +627,6 @@ let selectPulse=0
 let audio=null
 let muted=false
 let ended=false
-let menuSocket=null
 let pendingPromotionMoves=null
 
 const TIMEOUT={}
@@ -1599,19 +1606,33 @@ function doHumanMove(m){
   initAudio()
 
   if(currentMode==='multi'){
-    if(!connected||pendingMove||!matchSocket||matchSocket.readyState!==1){
+    if(!connected||pendingMove||!roomChannel||!roomChannel.ready()){
       statusEl.textContent='Koneksi match belum siap.'
       return
     }
 
+    const wireMove={fy:m.fy,fx:m.fx,ty:m.ty,tx:m.tx,promo:m.promo||null}
+    const seq=moveSeq
     pendingMove=true
     statusEl.textContent='Mengirim langkah...'
 
-    matchSocket.send(JSON.stringify({
-      type:'move',
-      seq:moveSeq,
-      move:{fy:m.fy,fx:m.fx,ty:m.ty,tx:m.tx,promo:m.promo||null}
-    }))
+    if(!roomChannel.broadcast('nexa_chess',{type:'move',matchId,from:NEXA_CONFIG.sessionId,seq,move:wireMove})){
+      pendingMove=false
+      statusEl.textContent='Koneksi Realtime belum siap.'
+      return
+    }
+
+    const capture=capturedByMove(game,m)
+    game=applyMove(game,m)
+    lastMove={fy:m.fy,fx:m.fx,ty:m.ty,tx:m.tx}
+    selected=null
+    options=[]
+    networkMoves.push(wireMove)
+    moveSeq++
+    pendingMove=false
+    capture?soundCapture():soundMove()
+    render()
+    setStatus()
     return
   }
 
@@ -1761,7 +1782,14 @@ function restart(){
   resultSent=false
   moveSeq=0
   hidePromotion()
-  if(matchSocket){try{matchSocket.close()}catch{};matchSocket=null}
+  if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
+  clearRoomTimers()
+  networkMoves=[]
+  roomId=''
+  matchId=''
+  opponentSessionId=''
+  roomStarted=false
+  hostMode=false
 
   game=newState()
   ended=false
@@ -1833,12 +1861,14 @@ function replayMoves(moves=[]){
   moveSeq=0
   pendingMove=false
   resultSent=false
+  networkMoves=[]
 
   for(const entry of moves){
     const move=resolveNetworkMove(entry)
     if(!move)break
     game=applyMove(game,move)
     lastMove={fy:move.fy,fx:move.fx,ty:move.ty,tx:move.tx}
+    networkMoves.push({fy:move.fy,fx:move.fx,ty:move.ty,tx:move.tx,promo:move.promo||null})
     moveSeq++
   }
 
@@ -1848,8 +1878,8 @@ function replayMoves(moves=[]){
 }
 
 function reportResult(){
-  // Multiplayer v6: hasil final ditentukan Worker dari posisi legal,
-  // bukan klaim client. Ini mencegah client mengirim hasil palsu.
+  // V7: kedua client menghitung aturan yang sama secara lokal;
+  // hasil akhir tersinkron lewat urutan langkah Supabase Realtime.
   resultSent=true
 }
 
@@ -1881,119 +1911,204 @@ function handleServerResult(result,reason){
   setTimeout(()=>showMenu('Game selesai. Pilih mode untuk bermain lagi.'),2500)
 }
 
+function clearRoomTimers(){
+  if(roomRetryTimer){clearInterval(roomRetryTimer);roomRetryTimer=null}
+  if(roomHeartbeatTimer){clearInterval(roomHeartbeatTimer);roomHeartbeatTimer=null}
+}
+
+function randomText(len=8){
+  const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const bytes=new Uint8Array(len)
+  try{crypto.getRandomValues(bytes)}catch{for(let i=0;i<len;i++)bytes[i]=Math.floor(Math.random()*256)}
+  let out=''
+  for(let i=0;i<len;i++)out+=alphabet[bytes[i]%alphabet.length]
+  return out
+}
+
+function realtimeSocketUrl(){
+  try{
+    const base=new URL(String(NEXA_CONFIG.supabaseUrl||'').trim())
+    base.protocol=base.protocol==='http:'?'ws:':'wss:'
+    base.pathname='/realtime/v1/websocket'
+    base.search=''
+    base.searchParams.set('apikey',String(NEXA_CONFIG.supabaseKey||''))
+    base.searchParams.set('vsn','1.0.0')
+    return base.toString()
+  }catch{return''}
+}
+
+const REALTIME_URL=realtimeSocketUrl()
+
+function socketLabel(){
+  try{
+    const u=new URL(REALTIME_URL)
+    return u.host+'/realtime/v1/websocket'
+  }catch{return'endpoint Supabase tidak valid'}
+}
+
+class NexaRealtimeChannel{
+  constructor(topic,onBroadcast,onReady,onState){
+    this.topic='realtime:'+topic
+    this.onBroadcast=onBroadcast
+    this.onReady=onReady
+    this.onState=onState
+    this.ws=null
+    this.joined=false
+    this.closed=false
+    this.ref=0
+    this.joinRef=''
+    this.heartbeat=null
+    this.reconnect=null
+  }
+
+  nextRef(){this.ref++;return String(this.ref)}
+  ready(){return !!(this.joined&&this.ws&&this.ws.readyState===1)}
+
+  sendFrame(event,payload={},ref=null,topic=null,joinRef=undefined){
+    if(!this.ws||this.ws.readyState!==1)return false
+    try{
+      this.ws.send(JSON.stringify({
+        topic:topic||this.topic,
+        event,
+        payload,
+        ref:ref||this.nextRef(),
+        join_ref:joinRef===undefined?this.joinRef:joinRef
+      }))
+      return true
+    }catch{return false}
+  }
+
+  connect(){
+    if(this.closed||!REALTIME_URL)return
+    this.joined=false
+    this.onState&&this.onState('connecting')
+    try{
+      const ws=new WebSocket(REALTIME_URL)
+      this.ws=ws
+      const timeout=setTimeout(()=>{
+        if(this.ws===ws&&ws.readyState===0){try{ws.close()}catch{}}
+      },10000)
+
+      ws.onopen=()=>{
+        clearTimeout(timeout)
+        if(this.ws!==ws||this.closed)return
+        this.onState&&this.onState('open')
+        this.joinRef=this.nextRef()
+        this.sendFrame('phx_join',{
+          config:{
+            broadcast:{ack:true,self:false},
+            presence:{enabled:false},
+            postgres_changes:[],
+            private:true
+          },
+          access_token:String(NEXA_CONFIG.accessToken||'')
+        },this.joinRef,this.topic,this.joinRef)
+        this.heartbeat=setInterval(()=>{
+          this.sendFrame('heartbeat',{},this.nextRef(),'phoenix',null)
+        },25000)
+      }
+
+      ws.onmessage=e=>{
+        let msg
+        try{msg=JSON.parse(e.data)}catch{return}
+        if(!msg)return
+
+        if(msg.event==='phx_reply'&&String(msg.ref||'')===String(this.joinRef)){
+          if(msg.payload?.status==='ok'){
+            this.joined=true
+            this.onState&&this.onState('joined')
+            this.onReady&&this.onReady()
+          }else{
+            this.onState&&this.onState('auth_error',msg.payload?.response||msg.payload)
+          }
+          return
+        }
+
+        if(msg.event==='broadcast'){
+          const packet=msg.payload||{}
+          const event=packet.event||packet.type||''
+          const payload=packet.payload||packet
+          this.onBroadcast&&this.onBroadcast(event,payload)
+          return
+        }
+
+        if(msg.event==='phx_error'){
+          this.onState&&this.onState('channel_error',msg.payload)
+        }
+      }
+
+      ws.onerror=()=>{
+        clearTimeout(timeout)
+        if(this.ws!==ws||this.closed)return
+        this.onState&&this.onState('error')
+      }
+
+      ws.onclose=e=>{
+        clearTimeout(timeout)
+        if(this.heartbeat){clearInterval(this.heartbeat);this.heartbeat=null}
+        if(this.ws!==ws)return
+        this.ws=null
+        this.joined=false
+        if(this.closed)return
+        this.onState&&this.onState('closed',{code:Number(e?.code)||1006,reason:String(e?.reason||'')})
+        clearTimeout(this.reconnect)
+        this.reconnect=setTimeout(()=>this.connect(),1200)
+      }
+    }catch{
+      this.onState&&this.onState('error')
+      if(!this.closed)this.reconnect=setTimeout(()=>this.connect(),1500)
+    }
+  }
+
+  broadcast(event,payload){
+    return this.sendFrame('broadcast',{type:'broadcast',event,payload})
+  }
+
+  close(){
+    this.closed=true
+    this.joined=false
+    clearTimeout(this.reconnect)
+    if(this.heartbeat){clearInterval(this.heartbeat);this.heartbeat=null}
+    if(this.ws){try{this.ws.close(1000,'menu')}catch{};this.ws=null}
+  }
+}
+
+function sendRoomPacket(type,data={}){
+  if(!roomChannel||!roomChannel.ready())return false
+  return roomChannel.broadcast('nexa_chess',{
+    type,
+    roomId,
+    matchId,
+    from:NEXA_CONFIG.sessionId,
+    name:String(NEXA_CONFIG.playerName||'NEXA Player').slice(0,48),
+    ...data
+  })
+}
+
+function beginMatchedGame(data){
+  clearRoomTimers()
+  if(!data)return
+  matchId=String(data.matchId||matchId||'')
+  opponentSessionId=String(data.opponentSessionId||opponentSessionId||'')
+  NEXA_CONFIG.playerColor=data.playerColor==='b'?'b':'w'
+  NEXA_CONFIG.opponentName=data.opponentName||'Player'
+  connectMatch()
+}
+
 function connectMatch(){
   document.body.classList.remove('menu-open')
   currentMode='multi'
   playerColor=NEXA_CONFIG.playerColor==='b'?'b':'w'
   flipped=playerColor==='b'
   youColorEl.textContent=playerColor==='w'?'WHITE ♙':'BLACK ♟'
-  detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName||'Player'} • multiplayer real-time`
+  detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName||'Player'} • Supabase Realtime`
   newBtn.textContent='GAME AKTIF'
   newBtn.disabled=true
   menuScreen.classList.add('hidden')
-  statusEl.textContent='Menghubungkan match...'
+  connected=!!(roomChannel&&roomChannel.ready())
   render()
-
-  if(!SOCKET_URL||!NEXA_CONFIG.matchToken){
-    statusEl.textContent='❌ Konfigurasi multiplayer tidak lengkap.'
-    return
-  }
-
-  try{
-    const ws=new WebSocket(SOCKET_URL)
-    matchSocket=ws
-    let opened=false
-    const connectTimer=setTimeout(()=>{
-      if(matchSocket===ws&&!opened&&ws.readyState===0){
-        statusEl.textContent=`❌ Timeout WebSocket • ${socketLabel()}`
-        try{ws.close()}catch{}
-      }
-    },9000)
-
-    ws.onopen=()=>{
-      opened=true
-      clearTimeout(connectTimer)
-      statusEl.textContent='Mengautentikasi match...'
-      ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.matchToken}))
-    }
-
-    ws.onmessage=e=>{
-      let data
-      try{data=JSON.parse(e.data)}catch{return}
-
-      if(data.type==='state'){
-        connected=true
-        pendingMove=false
-        playerColor=data.color==='b'?'b':'w'
-        flipped=playerColor==='b'
-        youColorEl.textContent=playerColor==='w'?'WHITE ♙':'BLACK ♟'
-        NEXA_CONFIG.opponentName=data.opponentName||NEXA_CONFIG.opponentName
-        replayMoves(Array.isArray(data.moves)?data.moves:[])
-        detailEl.textContent=`Lawan: ${NEXA_CONFIG.opponentName||'Player'} • multiplayer real-time`
-        if(data.status==='finished'&&data.result){
-          handleServerResult(data.result,data.terminalReason)
-        }
-        return
-      }
-
-      if(data.type==='move'){
-        if(Number(data.seq)!==moveSeq){
-          ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.matchToken}))
-          return
-        }
-        if(!applyNetworkMove(data.move||{})){
-          ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.matchToken}))
-        }
-        return
-      }
-
-      if(data.type==='resync'){
-        replayMoves(Array.isArray(data.moves)?data.moves:[])
-        return
-      }
-
-      if(data.type==='result'){
-        handleServerResult(data.result,data.reason)
-        return
-      }
-
-      if(data.type==='error'){
-        pendingMove=false
-        const map={
-          NOT_YOUR_TURN:'Belum giliran kamu.',
-          ILLEGAL_MOVE:'Langkah ditolak: tidak legal.',
-          MATCH_STATE_CORRUPT:'State match rusak. Buka .catur baru.',
-          MATCH_NOT_ACTIVE:'Match sudah tidak aktif.',
-          INVALID_TOKEN:'Sesi match sudah kedaluwarsa.'
-        }
-        statusEl.textContent='⚠️ '+(map[data.code]||data.code||'Server menolak aksi.')
-        if(data.code==='ILLEGAL_MOVE'||data.code==='NOT_YOUR_TURN'){
-          try{ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.matchToken}))}catch{}
-        }
-      }
-    }
-
-    ws.onerror=()=>{
-      if(matchSocket!==ws)return
-      clearTimeout(connectTimer)
-      connected=false
-      statusEl.textContent=`❌ WebSocket error • ${socketLabel()}`
-    }
-
-    ws.onclose=e=>{
-      clearTimeout(connectTimer)
-      if(matchSocket!==ws)return
-      matchSocket=null
-      connected=false
-      if(!ended){
-        const code=Number(e?.code)||1006
-        statusEl.textContent=`Koneksi putus (${code}). Mencoba sambung ulang...`
-        setTimeout(()=>{if(!ended&&!matchSocket)connectMatch()},1400)
-      }
-    }
-  }catch{
-    statusEl.textContent=`❌ WebSocket tidak tersedia • ${socketLabel()}`
-  }
+  setStatus()
+  if(connected)sendRoomPacket('sync_request',{target:opponentSessionId})
 }
 
 function setMenuPanel(name){
@@ -2015,31 +2130,31 @@ function configureMultiplayerButton(){
     return
   }
 
-  if(!NEXA_CONFIG.multiplayerReady||!SOCKET_URL||!NEXA_CONFIG.menuToken){
+  if(!NEXA_CONFIG.multiplayerReady||!REALTIME_URL||!NEXA_CONFIG.accessToken||!NEXA_CONFIG.sessionId){
     multiMode.disabled=true
-    multiModeInfo.textContent=NEXA_CONFIG.multiplayerIssue?'Server multiplayer config error.':'Server multiplayer belum aktif.'
+    multiModeInfo.textContent=NEXA_CONFIG.multiplayerIssue?'Supabase/Vercel config error.':'Server multiplayer belum aktif.'
     return
   }
 
   multiMode.disabled=false
-  multiModeInfo.textContent='Main real-time dengan satu player NEXA lewat Room ID.'
+  multiModeInfo.textContent='Main real-time via Supabase + Vercel dengan Room ID.'
 }
 
 function showMenu(message='Pilih salah satu mode.'){
+  currentMode='menu'
   hidePromotion()
   document.body.classList.add('menu-open')
   thinking=false
   selected=null
   options=[]
-  if(menuSocket){
-    try{menuSocket.close()}catch{}
-    menuSocket=null
-  }
-  if(ended&&matchSocket){
-    try{matchSocket.close()}catch{}
-    matchSocket=null
-    connected=false
-  }
+  clearRoomTimers()
+  if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
+  connected=false
+  roomId=''
+  matchId=''
+  roomStarted=false
+  opponentSessionId=''
+  networkMoves=[]
   newBtn.disabled=false
   setMenuPanel('mode')
   configureMultiplayerButton()
@@ -2060,30 +2175,6 @@ function showMultiplayerMenu(){
   menuStatus.textContent='Buat room atau masukkan Room ID.'
 }
 
-function normalizeClientWsUrl(value){
-  let raw=String(value||'').trim()
-  if(!raw)return''
-  if(raw.startsWith('https://'))raw='wss://'+raw.slice(8)
-  else if(raw.startsWith('http://'))raw='ws://'+raw.slice(7)
-  try{
-    const url=new URL(raw)
-    if(url.protocol!=='wss:'&&url.protocol!=='ws:')return''
-    url.pathname='/chess'
-    url.search=''
-    url.hash=''
-    return url.toString().replace(/\/$/,'')
-  }catch{return''}
-}
-
-const SOCKET_URL=normalizeClientWsUrl(NEXA_CONFIG.wsUrl)
-
-function socketLabel(){
-  try{
-    const u=new URL(SOCKET_URL)
-    return u.host+u.pathname
-  }catch{return'endpoint tidak valid'}
-}
-
 function normalizeRoomInput(){
   roomInput.value=String(roomInput.value||'')
     .toUpperCase()
@@ -2091,132 +2182,215 @@ function normalizeRoomInput(){
     .slice(0,8)
 }
 
-function beginMatchedGame(data){
-  if(!data||!data.matchToken)return
-  NEXA_CONFIG.matchToken=data.matchToken
-  NEXA_CONFIG.playerColor=data.playerColor==='b'?'b':'w'
-  NEXA_CONFIG.opponentName=data.opponentName||'Player'
-  if(menuSocket){
-    try{menuSocket.close()}catch{}
-    menuSocket=null
+function onRealtimeState(state,detail){
+  if(state==='connecting'){
+    if(currentMode==='multi')statusEl.textContent='Menghubungkan Supabase...'
+    else menuStatus.textContent=`Menghubungkan Supabase... • ${socketLabel()}`
+    return
   }
-  connectMatch()
+  if(state==='open'){
+    if(currentMode!=='multi')menuStatus.textContent='WSS OPEN ✅ • autentikasi private channel...'
+    return
+  }
+  if(state==='joined'){
+    connected=currentMode==='multi'
+    if(currentMode==='multi'){
+      statusEl.textContent='Tersambung. Sinkronisasi...'
+      sendRoomPacket('sync_request',{target:opponentSessionId})
+    }
+    return
+  }
+  if(state==='auth_error'){
+    const reason=String(detail?.reason||detail?.message||detail?.status||'RLS/JWT ditolak')
+    if(currentMode==='multi')statusEl.textContent='❌ Supabase auth error • '+reason
+    else menuStatus.textContent='❌ Supabase auth error • '+reason
+    return
+  }
+  if(state==='error'){
+    if(currentMode==='multi')statusEl.textContent=`❌ WebSocket Supabase error • ${socketLabel()}`
+    else menuStatus.textContent=`❌ WebSocket Supabase error • ${socketLabel()}`
+    return
+  }
+  if(state==='closed'){
+    connected=false
+    const code=Number(detail?.code)||1006
+    if(currentMode==='multi')statusEl.textContent=`Koneksi putus (${code}). Menyambung ulang...`
+    else menuStatus.textContent=`WSS tertutup (${code}). Mencoba lagi...`
+  }
 }
 
-function openRoomSocket(action){
-  if(!SOCKET_URL||!NEXA_CONFIG.menuToken){
-    menuStatus.textContent='Server multiplayer belum tersedia.'
+function onRoomBroadcast(_event,data){
+  if(!data||data.roomId!==roomId)return
+  if(String(data.from||'')===String(NEXA_CONFIG.sessionId||''))return
+  const type=String(data.type||'')
+
+  if(type==='room_hello'){
+    if(!hostMode&&!roomStarted){
+      sendRoomPacket('join_request')
+    }
     return
   }
 
-  if(menuSocket){
-    try{menuSocket.close()}catch{}
-    menuSocket=null
+  if(type==='join_request'){
+    if(!hostMode||roomStarted)return
+    const guestSid=String(data.from||'')
+    if(!guestSid||guestSid===NEXA_CONFIG.sessionId)return
+    roomStarted=true
+    opponentSessionId=guestSid
+    matchId=randomText(12)
+    const coin=new Uint8Array(1)
+    try{crypto.getRandomValues(coin)}catch{coin[0]=Math.floor(Math.random()*256)}
+    const hostWhite=(coin[0]&1)===0
+    const hostColor=hostWhite?'w':'b'
+    const guestColor=hostColor==='w'?'b':'w'
+    const guestName=String(data.name||'Player').slice(0,48)
+    const hostName=String(NEXA_CONFIG.playerName||'NEXA Player').slice(0,48)
+
+    sendRoomPacket('match_start',{
+      matchId,
+      target:guestSid,
+      hostSid:NEXA_CONFIG.sessionId,
+      guestSid,
+      hostName,
+      guestName,
+      hostColor,
+      guestColor
+    })
+
+    beginMatchedGame({
+      matchId,
+      playerColor:hostColor,
+      opponentName:guestName,
+      opponentSessionId:guestSid
+    })
+    return
   }
 
-  menuStatus.textContent=`Menghubungkan... • ${socketLabel()}`
+  if(type==='match_start'){
+    if(hostMode||roomStarted)return
+    if(String(data.target||'')!==String(NEXA_CONFIG.sessionId||''))return
+    roomStarted=true
+    matchId=String(data.matchId||'')
+    opponentSessionId=String(data.hostSid||'')
+    beginMatchedGame({
+      matchId,
+      playerColor:data.guestColor==='b'?'b':'w',
+      opponentName:String(data.hostName||'Player').slice(0,48),
+      opponentSessionId
+    })
+    return
+  }
 
-  try{
-    const ws=new WebSocket(SOCKET_URL)
-    menuSocket=ws
-    let actionSent=false
-    let opened=false
-    let matched=false
-    let intentionalClose=false
+  if(!roomStarted||!matchId||String(data.matchId||'')!==matchId)return
 
-    const connectTimer=setTimeout(()=>{
-      if(menuSocket===ws&&!opened&&ws.readyState===0){
-        menuStatus.textContent=`❌ Timeout WebSocket • ${socketLabel()}`
-        intentionalClose=true
-        try{ws.close()}catch{}
-      }
-    },9000)
-
-    ws.onopen=()=>{
-      opened=true
-      clearTimeout(connectTimer)
-      menuStatus.textContent=`WSS OPEN ✅ • autentikasi...`
-      ws.send(JSON.stringify({type:'auth',token:NEXA_CONFIG.menuToken}))
+  if(type==='move'){
+    if(opponentSessionId&&String(data.from||'')!==opponentSessionId)return
+    if(game.turn===playerColor){
+      sendRoomPacket('sync_request',{target:String(data.from||'')})
+      return
     }
+    if(Number(data.seq)!==moveSeq){
+      sendRoomPacket('sync_request',{target:String(data.from||'')})
+      return
+    }
+    const entry=data.move||{}
+    if(applyNetworkMove(entry)){
+      networkMoves.push({fy:Number(entry.fy),fx:Number(entry.fx),ty:Number(entry.ty),tx:Number(entry.tx),promo:entry.promo||null})
+    }else{
+      sendRoomPacket('sync_request',{target:String(data.from||'')})
+    }
+    return
+  }
 
-    ws.onmessage=e=>{
-      let data
-      try{data=JSON.parse(e.data)}catch{return}
+  if(type==='sync_request'){
+    const target=String(data.target||'')
+    if(target&&target!==String(NEXA_CONFIG.sessionId||''))return
+    sendRoomPacket('sync_state',{
+      target:String(data.from||''),
+      moves:networkMoves,
+      seq:moveSeq
+    })
+    return
+  }
 
-      if(data.type==='menu_ready'){
-        if(data.roomId&&action?.type==='create_room'){
-          roomCode.textContent=data.roomId
-          setMenuPanel('waiting')
-          menuStatus.textContent='Room aktif • menunggu player kedua...'
-          return
-        }
-        if(!actionSent&&action){
-          actionSent=true
-          ws.send(JSON.stringify(action))
-        }
+  if(type==='sync_state'){
+    if(String(data.target||'')!==String(NEXA_CONFIG.sessionId||''))return
+    if(Array.isArray(data.moves)&&data.moves.length>moveSeq)replayMoves(data.moves)
+    connected=true
+    return
+  }
+
+  if(type==='resign'){
+    handleServerResult(playerColor==='w'?'white':'black','resign')
+  }
+}
+
+function openRoomChannel(mode,id){
+  if(!REALTIME_URL||!NEXA_CONFIG.accessToken||!NEXA_CONFIG.sessionId){
+    menuStatus.textContent='Supabase/Vercel belum dikonfigurasi.'
+    return
+  }
+
+  clearRoomTimers()
+  if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
+  roomId=String(id||'').toUpperCase()
+  hostMode=mode==='host'
+  roomStarted=false
+  matchId=''
+  opponentSessionId=''
+  networkMoves=[]
+  moveSeq=0
+
+  if(hostMode){
+    roomCode.textContent=roomId
+    setMenuPanel('waiting')
+    menuStatus.textContent='Membuka private channel...'
+  }else{
+    menuStatus.textContent='Mencari room...'
+  }
+
+  roomChannel=new NexaRealtimeChannel(
+    'nexa-chess-'+roomId,
+    onRoomBroadcast,
+    ()=>{
+      if(roomStarted){
+        connected=currentMode==='multi'
+        if(connected)sendRoomPacket('sync_request',{target:opponentSessionId})
         return
       }
-
-      if(data.type==='room_created'){
-        roomCode.textContent=data.roomId||'--------'
+      if(hostMode){
+        roomCode.textContent=roomId
         setMenuPanel('waiting')
         menuStatus.textContent='Room aktif • menunggu player kedua...'
-        return
+        sendRoomPacket('room_hello')
+        roomHeartbeatTimer=setInterval(()=>{
+          if(!roomStarted)sendRoomPacket('room_hello')
+        },1800)
+      }else{
+        menuStatus.textContent='Channel tersambung • menunggu host...'
+        sendRoomPacket('join_request')
+        let tries=0
+        roomRetryTimer=setInterval(()=>{
+          if(roomStarted){clearRoomTimers();return}
+          tries++
+          sendRoomPacket('join_request')
+          if(tries>=10){
+            clearRoomTimers()
+            menuStatus.textContent='⚠️ Host tidak ditemukan. Cek Room ID atau minta host buka room lagi.'
+          }
+        },1600)
       }
-
-      if(data.type==='room_cancelled'){
-        intentionalClose=true
-        try{ws.close()}catch{}
-        setMenuPanel('room')
-        menuStatus.textContent='Room dibatalkan.'
-        return
-      }
-
-      if(data.type==='match_ready'){
-        matched=true
-        menuStatus.textContent='✅ Lawan ditemukan. Menyiapkan papan...'
-        beginMatchedGame(data)
-        return
-      }
-
-      if(data.type==='error'){
-        const map={
-          PRIVATE_ONLY:'Main bareng hanya support private chat.',
-          REGISTER_REQUIRED:'Register NEXA dulu sebelum main bareng.',
-          ROOM_NOT_FOUND:'Room ID tidak ditemukan atau sudah dipakai.',
-          ROOM_ALREADY_OPEN:'Kamu masih punya room aktif. Batalkan dulu room lama.',
-          CANNOT_JOIN_SELF:'Kamu tidak bisa join room milik sendiri.',
-          HOST_OFFLINE:'Pemilik room sudah tidak menunggu. Minta dia buka room lagi.',
-          INVALID_TOKEN:'Sesi catur kedaluwarsa / secret tidak cocok. Jalankan .catur baru.'
-        }
-        menuStatus.textContent='⚠️ '+(map[data.code]||data.code||'Aksi multiplayer gagal.')
-      }
-    }
-
-    ws.onerror=()=>{
-      clearTimeout(connectTimer)
-      if(menuSocket!==ws||matched)return
-      menuStatus.textContent=`❌ WebSocket error • ${socketLabel()}`
-    }
-
-    ws.onclose=e=>{
-      clearTimeout(connectTimer)
-      if(menuSocket===ws)menuSocket=null
-      if(intentionalClose||matched)return
-      const code=Number(e?.code)||1006
-      const reason=String(e?.reason||'').trim()
-      menuStatus.textContent=`❌ WSS tertutup (${code})${reason?' • '+reason:''} • ${socketLabel()}`
-    }
-  }catch{
-    menuStatus.textContent=`❌ WebSocket tidak tersedia • ${socketLabel()}`
-  }
+    },
+    onRealtimeState
+  )
+  roomChannel.connect()
 }
 
 soloMode.addEventListener('click',startSolo)
 multiMode.addEventListener('click',showMultiplayerMenu)
 
 addRoom.addEventListener('click',()=>{
-  openRoomSocket({type:'create_room'})
+  openRoomChannel('host',randomText(8))
 })
 
 roomInput.addEventListener('input',normalizeRoomInput)
@@ -2231,21 +2405,22 @@ joinRoom.addEventListener('click',()=>{
     menuStatus.textContent='Masukkan Room ID 8 karakter.'
     return
   }
-  openRoomSocket({type:'join_room',roomId:id})
+  openRoomChannel('guest',id)
 })
 
 roomBack.addEventListener('click',()=>{
-  if(menuSocket){try{menuSocket.close()}catch{};menuSocket=null}
+  clearRoomTimers()
+  if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
   setMenuPanel('mode')
   menuStatus.textContent='Pilih salah satu mode.'
 })
 
 cancelRoom.addEventListener('click',()=>{
-  if(menuSocket&&menuSocket.readyState===1){
-    menuSocket.send(JSON.stringify({type:'cancel_room'}))
-    return
-  }
-  openRoomSocket({type:'cancel_room'})
+  clearRoomTimers()
+  if(roomChannel){try{roomChannel.close()}catch{};roomChannel=null}
+  roomId=''
+  setMenuPanel('room')
+  menuStatus.textContent='Room dibatalkan.'
 })
 
 newBtn.addEventListener(

@@ -1,0 +1,76 @@
+NEXA CHESS V7 — SUPABASE + VERCEL
+==================================
+
+Arsitektur:
+- WhatsApp mini-app -> WebSocket langsung ke Supabase Realtime.
+- Vercel hanya menerbitkan JWT singkat untuk private Realtime channel.
+- NEXA/Pterodactyl memanggil Vercel server-to-server ketika .catur dibuka.
+- Tidak memakai Cloudflare Worker lagi.
+
+1) SUPABASE
+-----------
+Buat project Supabase khusus NEXA Chess.
+
+Ambil:
+- Project URL, contoh: https://abcdef.supabase.co
+- Publishable key, format baru: sb_publishable_...
+- Legacy/shared JWT Secret dari Project Settings -> API Keys / JWT Secret.
+  JANGAN pakai sb_secret_... sebagai JWT secret.
+
+Buka SQL Editor, jalankan file:
+  supabase-chess/setup.sql
+
+Untuk project khusus chess, disarankan Realtime Settings -> Allow public access = OFF.
+V7 memakai private Broadcast channel + RLS.
+
+2) VERCEL
+---------
+Deploy folder `vercel-chess` sebagai Root Directory project Vercel.
+
+Environment Variables Vercel:
+  NEXA_CHESS_API_SECRET=<secret random milikmu>
+  SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+  SUPABASE_JWT_SECRET=<Legacy/shared JWT Secret Supabase>
+
+Setelah deploy, cek:
+  https://PROJECT-VERCEL.vercel.app/api/health
+
+Target:
+  "ok": true
+  "apiSecretConfigured": true
+  "jwtSecretConfigured": true
+  "supabaseUrlConfigured": true
+
+3) NEXA / PTERODACTYL .env
+--------------------------
+Tambahkan:
+  NEXA_SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+  NEXA_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+  NEXA_CHESS_VERCEL_URL=https://PROJECT-VERCEL.vercel.app
+  NEXA_CHESS_API_SECRET=<SAMA dengan NEXA_CHESS_API_SECRET di Vercel>
+
+Restart bot setelah .env diubah.
+
+Variable lama Cloudflare:
+  NEXA_CHESS_WS_URL
+  NEXA_CHESS_SECRET
+sudah tidak dipakai V7 dan boleh dihapus setelah semuanya bekerja.
+Folder cloudflare-chess juga tidak dipakai lagi; boleh dihapus dari repo setelah migrasi berhasil.
+
+4) TEST
+-------
+- Private chat -> .catur
+- Main bareng -> Add Room
+- Dari akun NEXA lain/private chat -> .catur -> Main bareng -> Join Room
+- Masukkan Room ID 8 karakter.
+
+Engine V7 mempertahankan rules V6:
+- legal move + king safety
+- check/checkmate/stalemate
+- castling
+- en passant
+- promotion Q/R/B/N
+- threefold repetition
+- 50-move rule
+- insufficient material
+- POV player selalu di bawah

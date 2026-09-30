@@ -7,7 +7,7 @@ import { getUser } from '../lib/userdb.js'
 import { getProfileJid, resolveProfileJid } from '../lib/profile.js'
 import {
   createChessMenuSession,
-  getChessPublicWsUrl,
+  getChessRealtimeConfig,
   chessMultiplayerConfigured
 } from '../lib/chessRealtime.js'
 
@@ -50,11 +50,6 @@ export default {
       msg?.key?.remoteJidAlt ||
       jid
 
-    // Core NEXA sudah punya register gate. Di sini kita hanya
-    // sinkronkan status untuk UI catur, dengan Owner tetap bypass.
-    // Beberapa versi Baileys bisa membawa PN/LID di field berbeda,
-    // jadi cek kandidat identitas yang relevan agar UI tidak salah
-    // menganggap user terdaftar sebagai belum register.
     const identityCandidates = [
       playerJid,
       msg?.key?.participantAlt,
@@ -81,32 +76,38 @@ export default {
     user = user || getUser(playerJid)
 
     const isGroup = String(jid).endsWith('@g.us')
-    const wsUrl = getChessPublicWsUrl()
+    const realtime = getChessRealtimeConfig()
     let multiplayerReady =
       !isGroup && registered && chessMultiplayerConfigured()
 
-    let menuToken = null
+    let session = null
     let multiplayerIssue = null
+
     if (multiplayerReady) {
       try {
-        const menu = createChessMenuSession({
+        session = await createChessMenuSession({
           chatJid: jid,
           playerJid,
           registrationVerified: registered
         })
-        menuToken = menu.token
       } catch (err) {
         multiplayerReady = false
         multiplayerIssue = String(err?.message || err || 'CHESS_SESSION_ERROR')
-        console.error('♟️ NEXA Chess multiplayer session:', err)
+        console.error('♟️ NEXA Chess Supabase/Vercel session:', err)
       }
     }
 
     const html = injectConfig(
       fs.readFileSync(GAME_FILE, 'utf8'),
       {
-        wsUrl,
-        menuToken,
+        transport: 'supabase-realtime-v1',
+        supabaseUrl: realtime.supabaseUrl,
+        supabaseKey: realtime.supabaseKey,
+        accessToken: session?.accessToken || null,
+        sessionId: session?.sessionId || null,
+        sessionExpiresAt: session?.expiresAt || null,
+        playerId: session?.playerId || null,
+        playerName: session?.playerName || String(user?.name || 'NEXA Player').slice(0, 48),
         multiplayerReady,
         isGroup,
         registered,
@@ -117,7 +118,7 @@ export default {
     try {
       const trustedSources = ['nexa.local']
       try {
-        const host = wsUrl ? new URL(wsUrl).hostname : ''
+        const host = realtime.supabaseUrl ? new URL(realtime.supabaseUrl).hostname : ''
         if (host && !trustedSources.includes(host)) trustedSources.push(host)
       } catch {}
 
