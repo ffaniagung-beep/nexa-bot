@@ -1,0 +1,36 @@
+NEXA • APKMIRROR PROVIDER V1
+=============================
+
+Integrasi:
+- .app tetap menjadi aggregator.
+- Provider: APKPure + Uptodown + APKMirror.
+- APKMirror: Search -> Release -> Pilih Variant -> Download APK standalone.
+- Variant menampilkan arsitektur, Android minimum, DPI, tanggal, dan tipe APK/BUNDLE bila tersedia.
+- Bundle/split APK sengaja belum didownload pada V1; pilih variant bertanda APK.
+
+Resource / cleanup:
+- Tidak ada disk cache APKMirror.
+- Cache hanya metadata kecil di RAM, TTL 10 menit, maksimum 80 entry.
+- Session .app tetap TTL 15 menit mengikuti command lama.
+- File APK download memakai temp directory milik pipeline .app lama dan dibersihkan setelah sukses/gagal.
+- Batas file tetap 1 GB + resource gate/disk headroom Nexa.
+
+Proteksi provider:
+- Jika APKMirror memberi 403/429/503/Cloudflare challenge, provider dianggap sementara unavailable.
+- Tidak ada bypass challenge/Cloudflare.
+- APKPure/Uptodown tetap dapat bekerja meskipun APKMirror gagal.
+
+Validasi lokal yang sudah dijalankan:
+- npm run check
+- Syntax: 259 file JS
+- Commands: 175 file, tanpa collision name/alias
+
+Tes setelah install:
+1. Restart Nexa.
+2. Jalankan: .app whatsapp
+3. Pilih card Source: APKMirror.
+4. Tekan Download/Detail -> Pilih Variant.
+5. Pilih variant bertanda APK.
+
+Catatan:
+APKMirror dapat mengubah HTML kapan saja. Kalau provider berubah, parser mungkin perlu disesuaikan tanpa memengaruhi dua provider lain.

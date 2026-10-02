@@ -19,7 +19,8 @@ import {
   downloadOriginalAppToTemp,
   parseSizeBytes,
   MAX_APP_DOWNLOAD_BYTES,
-  formatBytes
+  formatBytes,
+  selectApkMirrorVariant
 } from '../lib/appProviders.js'
 
 import {
@@ -47,6 +48,9 @@ const SESSION_TTL =
   15 * 60 * 1000
 
 const CARDS_PER_PAGE =
+  8
+
+const VARIANT_CARDS_PER_PAGE =
   8
 
 const UPLOAD_TIMEOUT =
@@ -216,13 +220,13 @@ function buttonId(
   prefix,
   action,
   sessionId,
-  value = ''
+  ...values
 ) {
   return [
     `${prefix}app`,
     action,
     sessionId,
-    value
+    ...values
   ]
     .filter(
       part =>
@@ -246,6 +250,13 @@ function providerIcon(
     'uptodown'
   ) {
     return '🔵'
+  }
+
+  if (
+    provider ===
+    'apkmirror'
+  ) {
+    return '🟣'
   }
 
   return '📦'
@@ -276,6 +287,12 @@ function searchBody(
     '',
     `${providerIcon(item.provider)} Source: ${clean(item.providerLabel, 40)}`
   ]
+
+  if (item.version) {
+    lines.push(
+      `🏷 ${clean(item.version, 80)}`
+    )
+  }
 
   if (item.developer) {
     lines.push(
@@ -492,7 +509,7 @@ async function sendSearchCarousel({
         `${providerText(session.providers)}`
       )
       .setFooter(
-        'APK/XAPK original • APKPure + Uptodown'
+        'Original app • APKPure + Uptodown + APKMirror'
       )
       .addCard(cards)
 
@@ -587,6 +604,16 @@ function detailBody(
   }
 
   if (
+    detail.provider ===
+      'apkmirror' &&
+    detail.variantCount
+  ) {
+    lines.push(
+      `🧱 Variant: ${detail.variantCount} total • ${detail.standaloneCount || 0} APK standalone`
+    )
+  }
+
+  if (
     Number.isFinite(
       detail.rating
     )
@@ -645,18 +672,247 @@ async function sendDetail({
         'Original app • bukan MOD'
       )
 
-  message =
-    message.addReply(
-      '⬇ Download',
-      buttonId(
-        config.prefix,
-        '__download',
-        session.id,
-        index
+  if (
+    detail.provider ===
+    'apkmirror'
+  ) {
+    message =
+      message.addReply(
+        '🧩 Pilih Variant',
+        buttonId(
+          config.prefix,
+          '__variants',
+          session.id,
+          index,
+          0
+        )
+      )
+  } else {
+    message =
+      message.addReply(
+        '⬇ Download',
+        buttonId(
+          config.prefix,
+          '__download',
+          session.id,
+          index
+        )
+      )
+  }
+
+  await message.send(jid)
+}
+
+function variantBody(
+  detail,
+  variant,
+  index
+) {
+  const lines = [
+    `*Variant ${index + 1}*`,
+    '',
+    `🏷 ${clean(variant.version || detail.version || '-', 80)}`,
+    `🧩 ${clean(variant.fileType || '-', 30)}`
+  ]
+
+  if (variant.arch) {
+    lines.push(
+      `🏗 ${clean(variant.arch, 100)}`
+    )
+  }
+
+  if (variant.android) {
+    lines.push(
+      `🤖 ${clean(variant.android, 80)}`
+    )
+  }
+
+  if (variant.dpi) {
+    lines.push(
+      `🖼 ${clean(variant.dpi, 50)}`
+    )
+  }
+
+  if (variant.date) {
+    lines.push(
+      `📅 ${clean(variant.date, 60)}`
+    )
+  }
+
+  if (variant.fileType !== 'APK') {
+    lines.push(
+      '',
+      'ℹ Bundle/split APK belum didukung pada versi pertama provider ini.'
+    )
+  }
+
+  return lines.join('\n')
+}
+
+async function sendMirrorVariants({
+  sock,
+  jid,
+  config,
+  session,
+  index,
+  slice = 0
+}) {
+  const detail =
+    await ensureDetail(
+      session,
+      index
+    )
+
+  if (
+    detail.provider !==
+    'apkmirror'
+  ) {
+    throw new Error(
+      'APKMIRROR_VARIANT_INVALID'
+    )
+  }
+
+  const variants =
+    detail.variants || []
+
+  if (!variants.length) {
+    throw new Error(
+      'APKMIRROR_VARIANTS_NOT_FOUND'
+    )
+  }
+
+  const pages =
+    Math.max(
+      1,
+      Math.ceil(
+        variants.length /
+        VARIANT_CARDS_PER_PAGE
       )
     )
 
-  await message.send(jid)
+  const page =
+    Math.min(
+      Math.max(
+        0,
+        Number(slice) || 0
+      ),
+      pages - 1
+    )
+
+  const start =
+    page *
+    VARIANT_CARDS_PER_PAGE
+
+  const end =
+    Math.min(
+      start +
+      VARIANT_CARDS_PER_PAGE,
+      variants.length
+    )
+
+  const cards = []
+
+  for (
+    let variantIndex = start;
+    variantIndex < end;
+    variantIndex += 1
+  ) {
+    const variant =
+      variants[variantIndex]
+
+    const replies = [
+      {
+        text:
+          variant.fileType === 'APK'
+            ? '⬇ Download APK'
+            : 'ℹ Bundle',
+        id:
+          buttonId(
+            config.prefix,
+            variant.fileType === 'APK'
+              ? '__variantdl'
+              : '__bundle',
+            session.id,
+            index,
+            variantIndex
+          )
+      }
+    ]
+
+    cards.push(
+      await makeCard({
+        sock,
+        image:
+          detail.icon ||
+          fallbackImage,
+        body:
+          variantBody(
+            detail,
+            variant,
+            variantIndex
+          ),
+        replies
+      })
+    )
+  }
+
+  if (pages > 1) {
+    const replies = []
+
+    if (page > 0) {
+      replies.push({
+        text: '← Variant sebelumnya',
+        id:
+          buttonId(
+            config.prefix,
+            '__variants',
+            session.id,
+            index,
+            page - 1
+          )
+      })
+    }
+
+    if (page < pages - 1) {
+      replies.push({
+        text: 'Variant berikutnya →',
+        id:
+          buttonId(
+            config.prefix,
+            '__variants',
+            session.id,
+            index,
+            page + 1
+          )
+      })
+    }
+
+    cards.push(
+      await makeCard({
+        sock,
+        image: fallbackImage,
+        body:
+          `*Navigasi variant*\n\n` +
+          `${start + 1}–${end} dari ${variants.length}`,
+        replies
+      })
+    )
+  }
+
+  const carousel =
+    new Carousel(sock)
+      .setBody(
+        `✦ *NEXA • APKMIRROR*\n\n` +
+        `📱 ${clean(detail.title, 120)}\n` +
+        `🏷 ${clean(detail.version || 'Release', 80)}\n` +
+        `Pilih variant yang cocok untuk perangkatmu.`
+      )
+      .setFooter(
+        'APK standalone didukung • Bundle belum'
+      )
+      .addCard(cards)
+
+  await carousel.send(jid)
 }
 
 function feeText(
@@ -693,7 +949,8 @@ async function downloadItem({
   msg,
   jid,
   session,
-  index
+  index,
+  variantIndex = null
 }) {
   const lockKey =
     session.owner
@@ -725,11 +982,20 @@ async function downloadItem({
   let delivered = false
 
   try {
-    const detail =
+    const baseDetail =
       await ensureDetail(
         session,
         index
       )
+
+    const detail =
+      baseDetail.provider ===
+        'apkmirror'
+        ? await selectApkMirrorVariant(
+            baseDetail,
+            variantIndex
+          )
+        : baseDetail
 
     const resolved =
       await resolveOriginalAppDownload(
@@ -829,6 +1095,7 @@ async function downloadItem({
           `📦 ${clean(resolved.size || detail.size || '-', 60)}\n` +
           `🧩 ${clean(resolved.fileType || detail.fileType || 'APK', 30)}\n` +
           `${providerIcon(detail.provider)} ${clean(detail.providerLabel, 40)}\n` +
+          (detail.arch ? `🏗 ${clean(detail.arch, 80)}${detail.dpi ? ` • ${clean(detail.dpi, 40)}` : ''}\n` : '') +
           `🎟 Biaya awal: ${feeText(job)}\n\n` +
           `Biaya final menyesuaikan ukuran file aktual.`
       },
@@ -908,6 +1175,7 @@ async function downloadItem({
           `📦 ${formatBytes(downloaded.actualBytes)}\n` +
           `🧩 ${clean(downloaded.fileType, 20)}\n` +
           `${providerIcon(detail.provider)} Source: ${clean(detail.providerLabel, 40)}\n` +
+          (detail.arch ? `🏗 ${clean(detail.arch, 80)}${detail.dpi ? ` • ${clean(detail.dpi, 40)}` : ''}\n` : '') +
           `🎟 Biaya: ${feeText(job)}\n\n` +
           `File original • bukan MOD.`
       },
@@ -982,11 +1250,23 @@ async function downloadItem({
       reason =
         'Dependency *haidarcf* belum terpasang di server.'
     } else if (
-      /UPTODOWN_DOWNLOAD_METADATA_MISSING|UPTODOWN_TURNSTILE_FAILED|UPTODOWN_DIRECT_NOT_FOUND|APKPURE_DIRECT_NOT_FOUND/i
+      /UPTODOWN_DOWNLOAD_METADATA_MISSING|UPTODOWN_TURNSTILE_FAILED|UPTODOWN_DIRECT_NOT_FOUND|APKPURE_DIRECT_NOT_FOUND|APKMIRROR_DIRECT_NOT_FOUND|APKMIRROR_DOWNLOAD_PAGE_NOT_FOUND|APKMIRROR_VARIANTS_NOT_FOUND/i
         .test(code)
     ) {
       reason =
         'Provider sedang berubah atau tidak memberi direct download yang valid. Coba card/provider lain.'
+    } else if (
+      /APKMIRROR_BLOCKED_|APKMIRROR_CLOUDFLARE/i
+        .test(code)
+    ) {
+      reason =
+        'APKMirror sedang membatasi request otomatis. Coba lagi nanti atau gunakan provider lain.'
+    } else if (
+      /APKMIRROR_BUNDLE_UNSUPPORTED/i
+        .test(code)
+    ) {
+      reason =
+        'Variant ini berupa bundle/split APK. Versi provider pertama hanya mendukung APK standalone.'
     } else if (
       /APP_FILE_IS_HTML|APP_SIZE_MISMATCH/i
         .test(code)
@@ -1053,7 +1333,7 @@ async function searchApps({
       text:
         `✦ *NEXA • APP*\n\n` +
         `⌕ Sedang mencari *${clean(query, 80)}*...\n` +
-        `NEXA menyisir APKPure dan Uptodown.`
+        `NEXA menyisir APKPure, Uptodown, dan APKMirror.`
     },
     {
       quoted: msg
@@ -1127,7 +1407,7 @@ function helpText(
 ) {
   return (
     `✦ *NEXA • APP*\n\n` +
-    `Cari aplikasi Android original dari APKPure + Uptodown.\n\n` +
+    `Cari aplikasi Android original dari APKPure + Uptodown + APKMirror.\n\n` +
     `*${prefix}app <nama aplikasi>*\n` +
     `Contoh: *${prefix}app whatsapp*\n\n` +
     `Search/detail gratis. Limit dipotong saat download:\n` +
@@ -1137,7 +1417,7 @@ function helpText(
     `• ≤1 GB: 15 Limit • Premium 8\n` +
     `• Owner: gratis\n\n` +
     `🛡 Maksimum file: 1 GB\n` +
-    `🧩 APK dan XAPK dipertahankan sesuai tipe aslinya.`
+    `🧩 APK/XAPK dari provider lama tetap asli. APKMirror V1 fokus APK standalone.`
   )
 }
 
@@ -1155,7 +1435,7 @@ export default {
     'DOWNLOADER',
 
   description:
-    'Cari dan download APK/XAPK original dari APKPure dan Uptodown',
+    'Cari dan download aplikasi original dari APKPure, Uptodown, dan APKMirror',
 
   usage:
     '.app <query>',
@@ -1260,14 +1540,140 @@ export default {
           )
         }
 
+        const itemIndex =
+          Number(args[2])
+
+        const detail =
+          await ensureDetail(
+            session,
+            itemIndex
+          )
+
+        if (
+          detail.provider ===
+          'apkmirror'
+        ) {
+          const standalone =
+            detail.variants
+              .map((variant, variantIndex) => ({
+                variant,
+                variantIndex
+              }))
+              .filter(entry =>
+                entry.variant.fileType ===
+                'APK'
+              )
+
+          if (
+            standalone.length === 1 &&
+            detail.variants.length === 1
+          ) {
+            await downloadItem({
+              sock,
+              msg,
+              jid,
+              session,
+              index: itemIndex,
+              variantIndex:
+                standalone[0].variantIndex
+            })
+          } else {
+            await sendMirrorVariants({
+              sock,
+              jid,
+              config,
+              session,
+              index: itemIndex,
+              slice: 0
+            })
+          }
+
+          return
+        }
+
+        await downloadItem({
+          sock,
+          msg,
+          jid,
+          session,
+          index: itemIndex
+        })
+
+        return
+      }
+
+      if (
+        first === '__variants'
+      ) {
+        const session =
+          getSession({
+            id: args[1],
+            owner
+          })
+
+        if (!session) {
+          throw new Error(
+            'SESSION_EXPIRED'
+          )
+        }
+
+        await sendMirrorVariants({
+          sock,
+          jid,
+          config,
+          session,
+          index:
+            Number(args[2]),
+          slice:
+            Number(args[3]) || 0
+        })
+
+        return
+      }
+
+      if (
+        first === '__variantdl'
+      ) {
+        const session =
+          getSession({
+            id: args[1],
+            owner
+          })
+
+        if (!session) {
+          throw new Error(
+            'SESSION_EXPIRED'
+          )
+        }
+
         await downloadItem({
           sock,
           msg,
           jid,
           session,
           index:
-            Number(args[2])
+            Number(args[2]),
+          variantIndex:
+            Number(args[3])
         })
+
+        return
+      }
+
+      if (
+        first === '__bundle'
+      ) {
+        await sock.sendMessage(
+          jid,
+          {
+            text:
+              `✦ *NEXA • APKMIRROR*\n\n` +
+              `🧩 Variant ini berupa *Bundle / split APK*.\n` +
+              `Versi pertama provider APKMirror hanya mengirim *APK standalone*.\n\n` +
+              `Pilih variant yang bertanda *APK*.`
+          },
+          { quoted: msg }
+        )
 
         return
       }
