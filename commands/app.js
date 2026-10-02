@@ -1,4 +1,4 @@
-// NEXA ORIGINAL APP COMMAND V1
+// NEXA ORIGINAL APP COMMAND V1.2
 import {
   Button,
   Carousel
@@ -1249,11 +1249,11 @@ async function downloadItem({
       reason =
         'Provider sedang berubah atau tidak memberi direct download yang valid. Coba card/provider lain.'
     } else if (
-      /APKMIRROR_BLOCKED_|APKMIRROR_CLOUDFLARE/i
+      /APKMIRROR_BLOCKED_|APKMIRROR_CLOUDFLARE|APKMIRROR_SEARCH_PARSE_EMPTY/i
         .test(code)
     ) {
       reason =
-        'APKMirror sedang membatasi request otomatis. Coba lagi nanti atau gunakan provider lain.'
+        'APKMirror sedang membatasi request otomatis atau struktur hasilnya berubah. Coba lagi nanti atau gunakan provider lain.'
     } else if (
       /APKMIRROR_BUNDLE_UNSUPPORTED/i
         .test(code)

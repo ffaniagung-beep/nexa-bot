@@ -1,0 +1,23 @@
+NEXA APP V1.2 FIX
+=================
+
+Provider aktif:
+- APKPure
+- APKMirror
+
+Perubahan:
+1. APKMirror search parser diperketat untuk layout appRow/listWidget saat ini.
+2. Fallback parser release-link ditambahkan jika layout minor berubah.
+3. Parameter pagination APKMirror menggunakan `page`.
+4. Deteksi halaman Cloudflare/challenge APKMirror diperluas.
+5. Jika parser APKMirror mendapat halaman tak dikenal tanpa hasil eksplisit, provider gagal dengan APKMIRROR_SEARCH_PARSE_EMPTY (tidak diam-diam 0 hasil).
+6. Logging provider sekarang jelas:
+   [APP/APKPURE] ✅/❌ ...
+   [APP/APKMIRROR] ✅/❌ ...
+7. APKPure tidak lagi memakai haidarcf get-source untuk mengambil HTML. Request dilakukan langsung ke APKPure agar error API get-source 502 dari helper eksternal tidak membanjiri console.
+8. Uptodown tetap nonaktif.
+
+Catatan:
+- Jika APKPure memblokir request langsung, APKPure akan gagal sendiri dan APKMirror tetap dicoba.
+- Provider APKMirror tidak membypass Cloudflare. Jika situs memberi challenge/block, NEXA akan menandainya gagal agar provider lain tetap hidup.
+- Cache APKMirror tetap RAM-only, TTL 10 menit, max 80 entry.
