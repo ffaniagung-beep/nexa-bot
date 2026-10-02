@@ -247,13 +247,6 @@ function providerIcon(
 
   if (
     provider ===
-    'uptodown'
-  ) {
-    return '🔵'
-  }
-
-  if (
-    provider ===
     'apkmirror'
   ) {
     return '🟣'
@@ -509,7 +502,7 @@ async function sendSearchCarousel({
         `${providerText(session.providers)}`
       )
       .setFooter(
-        'Original app • APKPure + Uptodown + APKMirror'
+        'Original app • APKPure + APKMirror'
       )
       .addCard(cards)
 
@@ -1333,7 +1326,7 @@ async function searchApps({
       text:
         `✦ *NEXA • APP*\n\n` +
         `⌕ Sedang mencari *${clean(query, 80)}*...\n` +
-        `NEXA menyisir APKPure, Uptodown, dan APKMirror.`
+        `NEXA menyisir APKPure dan APKMirror.`
     },
     {
       quoted: msg
@@ -1407,7 +1400,7 @@ function helpText(
 ) {
   return (
     `✦ *NEXA • APP*\n\n` +
-    `Cari aplikasi Android original dari APKPure + Uptodown + APKMirror.\n\n` +
+    `Cari aplikasi Android original dari APKPure + APKMirror.\n\n` +
     `*${prefix}app <nama aplikasi>*\n` +
     `Contoh: *${prefix}app whatsapp*\n\n` +
     `Search/detail gratis. Limit dipotong saat download:\n` +
@@ -1435,7 +1428,7 @@ export default {
     'DOWNLOADER',
 
   description:
-    'Cari dan download aplikasi original dari APKPure, Uptodown, dan APKMirror',
+    'Cari dan download aplikasi original dari APKPure dan APKMirror',
 
   usage:
     '.app <query>',

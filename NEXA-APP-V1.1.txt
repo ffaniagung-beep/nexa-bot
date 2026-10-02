@@ -1,0 +1,9 @@
+NEXA APP V1.1
+
+Perubahan:
+- Uptodown dinonaktifkan dari provider aktif .app
+- Provider aktif sekarang: APKPure + APKMirror
+- Kode scraper Uptodown lama tetap disimpan untuk kemungkinan dipakai lagi nanti
+- UI/help text diperbarui agar tidak menampilkan Uptodown
+
+Tidak mengubah pipeline download/temp cleanup yang sudah ada.
