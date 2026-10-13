@@ -50,7 +50,8 @@ import {
 } from './lib/botdb.js'
 
 import {
-  getUser
+  getUser,
+  updateUser
 } from './lib/userdb.js'
 
 import {
@@ -495,9 +496,13 @@ function isOwnerMessage(
   msg,
   jid
 ) {
-  // Command yang dikirim dari akun BOT sendiri
-  // dianggap owner juga.
-  if (msg?.key?.fromMe) {
+  // Hanya pesan yang dikirim oleh akun utama pada proses utama
+  // yang boleh memakai shortcut fromMe sebagai owner.
+  // Pesan dari akun bot tambahan tidak pernah otomatis menjadi owner.
+  if (
+    msg?.key?.fromMe &&
+    process.env.NEXA_CHILD_BOT !== '1'
+  ) {
     return true
   }
 
@@ -2396,6 +2401,44 @@ async function startBotInner() {
   // CONNECTION
   // =====================================
 
+  function autoRegisterManagedBot() {
+    if (process.env.NEXA_CHILD_BOT !== '1') {
+      return
+    }
+
+    const botJid = sock.user?.id || state.creds?.me?.id
+    if (!botJid) {
+      console.warn('⚠️ Auto-register bot tambahan dilewati: JID akun belum tersedia.')
+      return
+    }
+
+    try {
+      const current = getUser(botJid)
+      const accountName = String(
+        sock.user?.name ||
+        sock.user?.notify ||
+        ''
+      ).trim()
+      const fallbackName = numberFromJid(botJid) || 'NEXA Bot'
+
+      updateUser(
+        botJid,
+        {
+          name: accountName || fallbackName,
+          registeredAt: current?.registeredAt || Date.now()
+        },
+        'auto-register-managed-bot'
+      )
+
+      console.log(`🪪 Profil bot tambahan terdaftar otomatis: ${accountName || fallbackName}`)
+    } catch (error) {
+      console.error(
+        '⚠️ Auto-register bot tambahan gagal:',
+        error?.message || error
+      )
+    }
+  }
+
   sock.ev.on(
     'connection.update',
     ({
@@ -2444,6 +2487,10 @@ async function startBotInner() {
         sock.sendPresenceUpdate(
           'available'
         ).catch(() => {})
+
+        // Akun bot tambahan masuk database otomatis sebagai user normal:
+        // nama mengikuti nama akun WhatsApp, limit/level mengikuti default user.
+        autoRegisterManagedBot()
 
         if (
           typeof process.send === 'function' &&
@@ -2727,6 +2774,16 @@ async function startBotInner() {
               .trim()
 
           if (!text) {
+            continue
+          }
+
+          // Bot tambahan tidak boleh mengeksekusi pesan keluar miliknya
+          // sendiri sebagai command. Ini mencegah fromMe memberi bypass
+          // owner atau memakai identitas penerima sebagai profil pengirim.
+          if (
+            process.env.NEXA_CHILD_BOT === '1' &&
+            msg?.key?.fromMe
+          ) {
             continue
           }
 
